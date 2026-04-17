@@ -1,0 +1,40 @@
+server:
+  port: 8443
+  tls_cert: "certs/server.crt"
+  tls_key: "certs/server.key"
+  shutdown_timeout: 30s
+
+sse:
+  poll_interval: 1s
+  batch_size: 100
+  heartbeat_interval: 15s
+  conn_ttl: 60s
+
+auth:
+  token_secret: "change-me-real-token-secret"
+  ticket_secret: "change-me-ticket-secret"
+  ticket_ttl: 5m
+
+ip:
+  strategy: "remote_addr"
+  # strategy: "rightmost_trusted_count"
+  header: "X-Forwarded-For"
+  trusted_count: 1
+  # trusted_ranges:
+  #   - "10.0.0.0/8"
+  #   - "172.16.0.0/12"
+
+ratelimit:
+  ticket_rpm: 10
+  ticket_burst: 3
+
+redis:
+  address: "localhost:6379"
+  password: ""
+  db: 0
+
+observability:
+  metrics_port: 9090
+  log_level: "info"   # debug, info, warn, error
+  log_format: "json"  # json, text
+
