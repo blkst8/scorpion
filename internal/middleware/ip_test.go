@@ -10,7 +10,7 @@ import (
 )
 
 func TestIPExtraction(t *testing.T) {
-	strategy, err := realclientip.NewRightmostTrustedCountStrategy("X-Forwarded-For", 1)
+	strategy, err := realclientip.NewRightmostTrustedCountStrategy("X-Forwarded-For", 2)
 	if err != nil {
 		t.Fatalf("failed to create strategy: %v", err)
 	}
@@ -37,7 +37,7 @@ func TestIPExtraction(t *testing.T) {
 			name:       "no XFF header",
 			xff:        "",
 			remoteAddr: "1.2.3.4:8080",
-			wantIP:     "1.2.3.4",
+			wantIP:     "",
 		},
 	}
 

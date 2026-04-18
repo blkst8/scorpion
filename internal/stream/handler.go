@@ -4,9 +4,7 @@ package stream
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"net/http"
-	"time"
 
 	"github.com/labstack/echo/v4"
 
