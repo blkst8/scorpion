@@ -5,13 +5,21 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"time"
 
 	"github.com/blkst8/scorpion/internal/config"
-	"github.com/blkst8/scorpion/internal/observability"
+	"github.com/blkst8/scorpion/internal/metrics"
 	redisstore "github.com/blkst8/scorpion/internal/redis"
 )
+
+// eventPayload represents a single SSE event from the Redis queue.
+type eventPayload struct {
+	ID   string          `json:"id"`
+	Type string          `json:"type"`
+	Data json.RawMessage `json:"data"`
+}
 
 // RunLoop runs the SSE event loop: polling Redis, draining events, and sending heartbeats.
 // It blocks until the context is cancelled (client disconnects or server shuts down).
@@ -23,6 +31,8 @@ func RunLoop(
 	cfg config.SSE,
 	conns *redisstore.ConnectionStore,
 	events *redisstore.EventStore,
+	log *slog.Logger,
+	m *metrics.Metrics,
 ) {
 	pollTicker := time.NewTicker(cfg.PollInterval)
 	defer pollTicker.Stop()
@@ -38,30 +48,27 @@ func RunLoop(
 			return
 
 		case <-heartbeatTicker.C:
-			sendHeartbeat(w, flusher, clientID, clientIP)
+			sendHeartbeat(w, flusher, clientID, clientIP, log, m)
 
 		case <-pollTicker.C:
-			// Always refresh connection TTL, even if there are no events.
 			if err := conns.Refresh(ctx, clientID, clientIP, connTTL); err != nil {
-				observability.Logger.Error("failed to refresh conn TTL",
+				log.Error("failed to refresh conn TTL",
 					"client_id", clientID, "ip", clientIP, "error", err)
 			}
 
-			// Batch drain events
 			batch, err := events.Drain(ctx, clientID, cfg.BatchSize)
 			if err != nil {
-				observability.Logger.Error("failed to drain events",
-					"client_id", clientID, "error", err)
-				observability.EventDrainErrorsTotal.Inc()
+				log.Error("failed to drain events", "client_id", clientID, "error", err)
+				m.EventDrainErrorsTotal.Inc()
 				continue
 			}
 
-			observability.EventsDrainedPerTick.Observe(float64(len(batch)))
+			m.EventsDrainedPerTick.Observe(float64(len(batch)))
 
 			for _, raw := range batch {
-				var e EventPayload
+				var e eventPayload
 				if err := json.Unmarshal([]byte(raw), &e); err != nil {
-					observability.Logger.Warn("malformed event", "client_id", clientID, "raw", raw, "error", err)
+					log.Warn("malformed event", "client_id", clientID, "raw", raw, "error", err)
 					continue
 				}
 
@@ -71,7 +78,7 @@ func RunLoop(
 				}
 
 				fmt.Fprintf(w, "id: %s\nevent: %s\ndata: %s\n\n", e.ID, eventType, string(e.Data))
-				observability.EventsDeliveredTotal.WithLabelValues(eventType).Inc()
+				m.EventsDeliveredTotal.WithLabelValues(eventType).Inc()
 			}
 
 			if len(batch) > 0 {

@@ -8,9 +8,6 @@ import (
 	"github.com/spf13/viper"
 )
 
-// C is the global configuration singleton.
-var C *Config
-
 // Config is the top-level configuration structure.
 type Config struct {
 	Server        Server        `yaml:"server"`
@@ -73,8 +70,8 @@ type Observability struct {
 	LogFormat   string `yaml:"log_format"`
 }
 
-// Load reads configuration from the given file path and populates C.
-func Load(configPath string) error {
+// Load reads configuration from the given file path and returns a populated Config.
+func Load(configPath string) (*Config, error) {
 	viper.SetConfigFile(configPath)
 	viper.SetConfigType("yaml")
 
@@ -100,13 +97,13 @@ func Load(configPath string) error {
 	viper.AutomaticEnv()
 
 	if err := viper.ReadInConfig(); err != nil {
-		return fmt.Errorf("failed to read config file: %w", err)
+		return nil, fmt.Errorf("failed to read config file: %w", err)
 	}
 
-	C = &Config{}
+	C := &Config{}
 	if err := viper.Unmarshal(C); err != nil {
-		return fmt.Errorf("failed to unmarshal config: %w", err)
+		return nil, fmt.Errorf("failed to unmarshal config: %w", err)
 	}
 
-	return nil
+	return C, nil
 }

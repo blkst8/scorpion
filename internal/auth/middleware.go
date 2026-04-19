@@ -1,18 +1,18 @@
 package auth
 
 import (
+	"log/slog"
 	"net/http"
 
 	"github.com/labstack/echo/v4"
+	"github.com/realclientip/realclientip-go"
 
 	"github.com/blkst8/scorpion/internal/config"
-	"github.com/blkst8/scorpion/internal/observability"
-	"github.com/realclientip/realclientip-go"
 )
 
-// TokenMiddleware validates the real Bearer token and sets client_id in context.
+// TokenMiddleware validates the real Bearer token and sets client_id/client_ip in context.
 // Used for routes that require authentication beyond the ticket system.
-func TokenMiddleware(cfg config.Auth, ipStrategy realclientip.Strategy) echo.MiddlewareFunc {
+func TokenMiddleware(cfg config.Auth, ipStrategy realclientip.Strategy, log *slog.Logger) echo.MiddlewareFunc {
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c echo.Context) error {
 			authHeader := c.Request().Header.Get("Authorization")
@@ -26,7 +26,7 @@ func TokenMiddleware(cfg config.Auth, ipStrategy realclientip.Strategy) echo.Mid
 			rawToken := authHeader[7:]
 			clientID, err := ValidateRealToken(cfg, rawToken)
 			if err != nil {
-				observability.Logger.Warn("middleware token validation failed", "error", err.Error())
+				log.Warn("middleware token validation failed", "error", err.Error())
 				return c.JSON(http.StatusUnauthorized, map[string]string{
 					"error":   "invalid_token",
 					"message": "The provided token is invalid or expired.",
