@@ -17,9 +17,9 @@ func HealthHandler(rdb *redis.Client) echo.HandlerFunc {
 
 		if err := rdb.Ping(ctx).Err(); err != nil {
 			return c.JSON(http.StatusServiceUnavailable, map[string]interface{}{
-				"status": "degraded",
-				"redis":  "disconnected",
-				"error":  err.Error(),
+				"status":     "degraded",
+				"repository": "disconnected",
+				"error":      err.Error(),
 			})
 		}
 

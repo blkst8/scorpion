@@ -12,7 +12,7 @@ import (
 	"github.com/blkst8/scorpion/internal/auth"
 	"github.com/blkst8/scorpion/internal/config"
 	"github.com/blkst8/scorpion/internal/metrics"
-	redisstore "github.com/blkst8/scorpion/internal/redis"
+	redisstore "github.com/blkst8/scorpion/internal/repository"
 	"github.com/blkst8/scorpion/internal/stream"
 )
 

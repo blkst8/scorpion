@@ -19,7 +19,7 @@ import (
 	applog "github.com/blkst8/scorpion/internal/log"
 	"github.com/blkst8/scorpion/internal/metrics"
 	"github.com/blkst8/scorpion/internal/ratelimit"
-	redisstore "github.com/blkst8/scorpion/internal/redis"
+	redisstore "github.com/blkst8/scorpion/internal/repository"
 )
 
 var configPath string
@@ -53,7 +53,7 @@ func runStart(_ *cobra.Command, _ []string) error {
 
 	rdb, err := redisstore.NewClient(cfg.Redis)
 	if err != nil {
-		return fmt.Errorf("failed to connect to redis: %w", err)
+		return fmt.Errorf("failed to connect to repository: %w", err)
 	}
 	defer rdb.Close()
 

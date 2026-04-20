@@ -11,7 +11,7 @@ import (
 
 	"github.com/blkst8/scorpion/internal/config"
 	"github.com/blkst8/scorpion/internal/metrics"
-	redisstore "github.com/blkst8/scorpion/internal/redis"
+	redisstore "github.com/blkst8/scorpion/internal/repository"
 )
 
 // eventPayload represents a single SSE event from the Redis queue.

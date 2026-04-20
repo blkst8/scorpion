@@ -15,7 +15,7 @@ type Config struct {
 	Auth          Auth          `yaml:"auth"`
 	IP            IP            `yaml:"ip"`
 	RateLimit     RateLimit     `yaml:"ratelimit"`
-	Redis         Redis         `yaml:"redis"`
+	Redis         Redis         `yaml:"repository"`
 	Observability Observability `yaml:"observability"`
 }
 
@@ -87,8 +87,8 @@ func Load(configPath string) (*Config, error) {
 	viper.SetDefault("ip.header", "X-Forwarded-For")
 	viper.SetDefault("ratelimit.ticket_rpm", 10)
 	viper.SetDefault("ratelimit.ticket_burst", 3)
-	viper.SetDefault("redis.address", "localhost:6379")
-	viper.SetDefault("redis.db", 0)
+	viper.SetDefault("repository.address", "localhost:6379")
+	viper.SetDefault("repository.db", 0)
 	viper.SetDefault("observability.metrics_port", 9090)
 	viper.SetDefault("observability.log_level", "info")
 	viper.SetDefault("observability.log_format", "json")

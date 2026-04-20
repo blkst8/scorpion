@@ -1,4 +1,4 @@
-// Package redis provides Redis client initialization for Scorpion.
+// Package repository provides Redis client initialization for Scorpion.
 package redisstore
 
 import (
@@ -20,7 +20,7 @@ func NewClient(cfg config.Redis) (*redis.Client, error) {
 
 	ctx := context.Background()
 	if err := rdb.Ping(ctx).Err(); err != nil {
-		return nil, fmt.Errorf("failed to connect to redis: %w", err)
+		return nil, fmt.Errorf("failed to connect to repository: %w", err)
 	}
 
 	return rdb, nil

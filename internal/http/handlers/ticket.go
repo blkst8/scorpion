@@ -15,7 +15,7 @@ import (
 	"github.com/blkst8/scorpion/internal/config"
 	"github.com/blkst8/scorpion/internal/metrics"
 	"github.com/blkst8/scorpion/internal/ratelimit"
-	redisstore "github.com/blkst8/scorpion/internal/redis"
+	redisstore "github.com/blkst8/scorpion/internal/repository"
 )
 
 type ticketResponse struct {
