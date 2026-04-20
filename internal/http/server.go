@@ -39,6 +39,7 @@ func NewServer(
 	ipStrategy realclientip.Strategy,
 	ticketHandler *handlers.TicketHandler, // restruct these handlers
 	sseHandler *handlers.SSEHandler,
+	eventHandler *handlers.EventHandler,
 ) *Server {
 	e := echo.New()
 	e.HideBanner = true
@@ -51,6 +52,7 @@ func NewServer(
 
 	v1 := e.Group("/v1")
 	v1.POST("/auth/ticket", ticketHandler.Handle)
+	v1.POST("/events/:client_id", eventHandler.Handle)
 	v1.GET(
 		"/stream/events",
 		sseHandler.Handle,

@@ -65,8 +65,9 @@ func runStart(_ *cobra.Command, _ []string) error {
 
 	ticketHandler := handlers.NewTicketHandler(*cfg, ticketStore, limiter, ipStrategy, log, m)
 	sseHandler := handlers.NewSSEHandler(*cfg, ticketStore, connStore, eventStore, ipStrategy, log, m)
+	eventHandler := handlers.NewEventHandler(eventStore, log)
 
-	srv := httpserver.NewServer(*cfg, log, rdb, ipStrategy, ticketHandler, sseHandler)
+	srv := httpserver.NewServer(*cfg, log, rdb, ipStrategy, ticketHandler, sseHandler, eventHandler)
 	srv.Serve()
 
 	stop := make(chan os.Signal, 1)
