@@ -12,12 +12,12 @@ import (
 	"github.com/spf13/cobra"
 	_ "go.uber.org/automaxprocs"
 
+	appmiddleware "github.com/blkst8/scorpion/internal/appmiddleware"
 	"github.com/blkst8/scorpion/internal/config"
 	httpserver "github.com/blkst8/scorpion/internal/http"
 	"github.com/blkst8/scorpion/internal/http/handlers"
 	applog "github.com/blkst8/scorpion/internal/log"
 	"github.com/blkst8/scorpion/internal/metrics"
-	appmiddleware "github.com/blkst8/scorpion/internal/middleware"
 	"github.com/blkst8/scorpion/internal/ratelimit"
 	redisstore "github.com/blkst8/scorpion/internal/redis"
 )
@@ -66,7 +66,7 @@ func runStart(_ *cobra.Command, _ []string) error {
 	ticketHandler := handlers.NewTicketHandler(*cfg, ticketStore, limiter, ipStrategy, log, m)
 	sseHandler := handlers.NewSSEHandler(*cfg, ticketStore, connStore, eventStore, ipStrategy, log, m)
 
-	srv := httpserver.NewServer(*cfg, log, rdb, ticketHandler, sseHandler)
+	srv := httpserver.NewServer(*cfg, log, rdb, ipStrategy, ticketHandler, sseHandler)
 	srv.Serve()
 
 	stop := make(chan os.Signal, 1)

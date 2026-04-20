@@ -45,21 +45,36 @@ func RunLoop(
 	for {
 		select {
 		case <-ctx.Done():
+			// Client close the connection
 			return
 
 		case <-heartbeatTicker.C:
+			// SSE connections traveling through proxies, load balancers, CDNs,
+			// and cloud infrastructure can be silently terminated if idle.
+			// Scorpion MUST send periodic **SSE comment lines** as heartbeats.
 			sendHeartbeat(w, flusher, clientID, clientIP, log, m)
 
 		case <-pollTicker.C:
+			// Read batch events and send it to client
 			if err := conns.Refresh(ctx, clientID, clientIP, connTTL); err != nil {
-				log.Error("failed to refresh conn TTL",
-					"client_id", clientID, "ip", clientIP, "error", err)
+				log.Error(
+					"failed to refresh conn TTL",
+					"client_id", clientID,
+					"ip", clientIP,
+					"error", err,
+				)
 			}
 
 			batch, err := events.Drain(ctx, clientID, cfg.BatchSize)
 			if err != nil {
-				log.Error("failed to drain events", "client_id", clientID, "error", err)
+				log.Error(
+					"failed to drain events",
+					"client_id", clientID,
+					"error", err,
+				)
+
 				m.EventDrainErrorsTotal.Inc()
+
 				continue
 			}
 
@@ -68,7 +83,13 @@ func RunLoop(
 			for _, raw := range batch {
 				var e eventPayload
 				if err := json.Unmarshal([]byte(raw), &e); err != nil {
-					log.Warn("malformed event", "client_id", clientID, "raw", raw, "error", err)
+					log.Warn(
+						"malformed event",
+						"client_id", clientID,
+						"raw", raw,
+						"error", err,
+					)
+
 					continue
 				}
 
@@ -78,6 +99,7 @@ func RunLoop(
 				}
 
 				fmt.Fprintf(w, "id: %s\nevent: %s\ndata: %s\n\n", e.ID, eventType, string(e.Data))
+
 				m.EventsDeliveredTotal.WithLabelValues(eventType).Inc()
 			}
 

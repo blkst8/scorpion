@@ -14,6 +14,12 @@ import (
 func sendHeartbeat(w io.Writer, flusher http.Flusher, clientID, clientIP string, log *slog.Logger, m *metrics.Metrics) {
 	fmt.Fprintf(w, ": heartbeat %d\n\n", time.Now().Unix())
 	flusher.Flush()
+
 	m.HeartbeatsSentTotal.Inc()
-	log.Debug("heartbeat sent", "client_id", clientID, "ip", clientIP)
+
+	log.Debug(
+		"heartbeat sent",
+		"client_id", clientID,
+		"ip", clientIP,
+	)
 }

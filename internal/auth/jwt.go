@@ -18,8 +18,8 @@ type TicketClaims struct {
 }
 
 // GenerateTicket creates a signed JWT ticket for the given client and IP.
-func GenerateTicket(cfg config.Auth, clientID, clientIP string) (string, string, error) {
-	jti := uuid.NewString()
+func GenerateTicket(cfg config.Auth, clientID, clientIP string) (signedToken string, jti string, err error) {
+	jti = uuid.NewString()
 	now := time.Now()
 
 	claims := TicketClaims{

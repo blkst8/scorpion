@@ -2,6 +2,7 @@ package redisstore
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/redis/go-redis/v9"
@@ -31,7 +32,7 @@ func (s *EventStore) Drain(ctx context.Context, clientID string, batchSize int) 
 	lrangeCmd := pipe.LRange(ctx, key, 0, int64(batchSize-1))
 	pipe.LTrim(ctx, key, int64(batchSize), -1)
 
-	if _, err := pipe.Exec(ctx); err != nil && err != redis.Nil {
+	if _, err := pipe.Exec(ctx); err != nil && !errors.Is(err, redis.Nil) {
 		return nil, fmt.Errorf("failed to drain events: %w", err)
 	}
 

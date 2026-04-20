@@ -4,14 +4,17 @@ package httpserver
 import (
 	"context"
 	"crypto/tls"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
 	"time"
 
+	"github.com/blkst8/scorpion/internal/http/middleware"
 	"github.com/labstack/echo/v4"
 	echomiddleware "github.com/labstack/echo/v4/middleware"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"github.com/realclientip/realclientip-go"
 	"github.com/redis/go-redis/v9"
 	"golang.org/x/net/http2"
 
@@ -33,7 +36,8 @@ func NewServer(
 	cfg config.Config,
 	log *slog.Logger,
 	rdb *redis.Client,
-	ticketHandler *handlers.TicketHandler,
+	ipStrategy realclientip.Strategy,
+	ticketHandler *handlers.TicketHandler, // restruct these handlers
 	sseHandler *handlers.SSEHandler,
 ) *Server {
 	e := echo.New()
@@ -47,7 +51,11 @@ func NewServer(
 
 	v1 := e.Group("/v1")
 	v1.POST("/auth/ticket", ticketHandler.Handle)
-	v1.GET("/stream/events", sseHandler.Handle)
+	v1.GET(
+		"/stream/events",
+		sseHandler.Handle,
+		middleware.TokenMiddleware(cfg.Auth, ipStrategy, log),
+	)
 
 	tlsCfg := &tls.Config{MinVersion: tls.VersionTLS12}
 
@@ -81,7 +89,7 @@ func NewServer(
 func (s *Server) Serve() {
 	go func() {
 		s.log.Info("metrics server starting", "port", s.cfg.Observability.MetricsPort)
-		if err := s.metricsSrv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		if err := s.metricsSrv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			s.log.Error("metrics server error", "error", err)
 		}
 	}()
@@ -89,7 +97,7 @@ func (s *Server) Serve() {
 	go func() {
 		s.log.Info("scorpion listening", "port", s.cfg.Server.Port, "tls", true)
 		if err := s.mainSrv.ListenAndServeTLS(s.cfg.Server.TLSCert, s.cfg.Server.TLSKey); err != nil &&
-			err != http.ErrServerClosed {
+			!errors.Is(err, http.ErrServerClosed) {
 			s.log.Error("server error", "error", err)
 		}
 	}()
