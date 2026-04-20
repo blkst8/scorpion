@@ -21,7 +21,7 @@ const (
 func TokenMiddleware(cfg config.Auth, ipStrategy realclientip.Strategy, log *slog.Logger) echo.MiddlewareFunc {
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c echo.Context) error {
-			// TODO: Nima
+			// TODO: Nima add skip path
 			authHeader := c.Request().Header.Get("Authorization")
 			if len(authHeader) < 8 || authHeader[:7] != "Bearer " {
 				return c.JSON(http.StatusUnauthorized, map[string]string{

@@ -41,5 +41,5 @@ func (s *EventStore) Drain(ctx context.Context, clientID string, batchSize int) 
 
 // Push adds an event JSON string to the front of a client's queue (LPUSH).
 func (s *EventStore) Push(ctx context.Context, clientID, eventJSON string) error {
-	return s.rdb.LPush(ctx, eventsKey(clientID), eventJSON).Err()
+	return s.rdb.RPush(ctx, eventsKey(clientID), eventJSON).Err()
 }

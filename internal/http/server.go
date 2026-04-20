@@ -50,14 +50,12 @@ func NewServer(
 
 	e.GET("/healthz", handlers.HealthHandler(rdb))
 
+	e.Use(middleware.TokenMiddleware(cfg.Auth, ipStrategy, log))
+
 	v1 := e.Group("/v1")
 	v1.POST("/auth/ticket", ticketHandler.Handle)
 	v1.POST("/events/:client_id", eventHandler.Handle)
-	v1.GET(
-		"/stream/events",
-		sseHandler.Handle,
-		middleware.TokenMiddleware(cfg.Auth, ipStrategy, log),
-	)
+	v1.GET("/stream/events", sseHandler.Handle)
 
 	tlsCfg := &tls.Config{MinVersion: tls.VersionTLS12}
 
