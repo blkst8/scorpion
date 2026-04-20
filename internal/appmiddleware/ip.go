@@ -1,5 +1,5 @@
-// Package middleware provides the realclientip-go strategy factory for Scorpion.
-package middleware
+// Package appmiddleware provides the realclientip-go strategy factory for Scorpion.
+package appmiddleware
 
 import (
 	"fmt"
