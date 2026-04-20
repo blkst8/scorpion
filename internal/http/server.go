@@ -47,7 +47,7 @@ func NewServer(
 	e.Use(echomiddleware.Recover())
 	e.Use(echomiddleware.RequestID())
 
-	e.GET("/healthz", handlers.HealthHandler(rdb, func() float64 { return 0 }))
+	e.GET("/healthz", handlers.HealthHandler(rdb))
 
 	v1 := e.Group("/v1")
 	v1.POST("/auth/ticket", ticketHandler.Handle)
