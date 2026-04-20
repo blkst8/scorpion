@@ -1,13 +1,19 @@
-package auth
+package middleware
 
 import (
 	"log/slog"
 	"net/http"
 
+	"github.com/blkst8/scorpion/internal/auth"
 	"github.com/labstack/echo/v4"
 	"github.com/realclientip/realclientip-go"
 
 	"github.com/blkst8/scorpion/internal/config"
+)
+
+const (
+	ClientID string = "client_id"
+	ClientIP string = "client_ip"
 )
 
 // TokenMiddleware validates the real Bearer token and sets client_id/client_ip in context.
@@ -15,6 +21,7 @@ import (
 func TokenMiddleware(cfg config.Auth, ipStrategy realclientip.Strategy, log *slog.Logger) echo.MiddlewareFunc {
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c echo.Context) error {
+			// TODO: Nima
 			authHeader := c.Request().Header.Get("Authorization")
 			if len(authHeader) < 8 || authHeader[:7] != "Bearer " {
 				return c.JSON(http.StatusUnauthorized, map[string]string{
@@ -24,9 +31,9 @@ func TokenMiddleware(cfg config.Auth, ipStrategy realclientip.Strategy, log *slo
 			}
 
 			rawToken := authHeader[7:]
-			clientID, err := ValidateRealToken(cfg, rawToken)
+			clientID, err := auth.ValidateRealToken(cfg, rawToken)
 			if err != nil {
-				log.Warn("middleware token validation failed", "error", err.Error())
+				log.Warn("appmiddleware token validation failed", "error", err.Error())
 				return c.JSON(http.StatusUnauthorized, map[string]string{
 					"error":   "invalid_token",
 					"message": "The provided token is invalid or expired.",
@@ -41,8 +48,8 @@ func TokenMiddleware(cfg config.Auth, ipStrategy realclientip.Strategy, log *slo
 				})
 			}
 
-			c.Set("client_id", clientID)
-			c.Set("client_ip", clientIP)
+			c.Set(ClientID, clientID)
+			c.Set(ClientIP, clientIP)
 			return next(c)
 		}
 	}
