@@ -9,10 +9,8 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
-var startTime = time.Now()
-
 // HealthHandler returns the /healthz echo handler.
-func HealthHandler(rdb *redis.Client, activeConns func() float64) echo.HandlerFunc {
+func HealthHandler(rdb *redis.Client) echo.HandlerFunc {
 	return func(c echo.Context) error {
 		ctx, cancel := context.WithTimeout(c.Request().Context(), 2*time.Second)
 		defer cancel()
@@ -25,11 +23,6 @@ func HealthHandler(rdb *redis.Client, activeConns func() float64) echo.HandlerFu
 			})
 		}
 
-		return c.JSON(http.StatusOK, map[string]interface{}{
-			"status":             "ok",
-			"redis":              "connected",
-			"active_connections": activeConns(),
-			"uptime_seconds":     int64(time.Since(startTime).Seconds()),
-		})
+		return c.NoContent(http.StatusNoContent)
 	}
 }
