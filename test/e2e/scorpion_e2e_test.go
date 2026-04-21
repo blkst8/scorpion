@@ -21,6 +21,7 @@ import (
 	"encoding/json"
 	"encoding/pem"
 	"fmt"
+	"io"
 	"math/big"
 	"net"
 	"net/http"
@@ -31,6 +32,7 @@ import (
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/prometheus/client_golang/prometheus"
 
 	appmiddleware "github.com/blkst8/scorpion/internal/appmiddleware"
 	"github.com/blkst8/scorpion/internal/config"
@@ -196,6 +198,8 @@ func startServer(t *testing.T) *testServer {
 			BatchSize:         100,
 			HeartbeatInterval: 2 * time.Second,
 			ConnTTL:           60 * time.Second,
+			MaxQueueDepth:     1000,
+			MaxEventBytes:     65536,
 		},
 		Auth: config.Auth{
 			TokenSecret:  "e2e-token-secret",
@@ -221,14 +225,14 @@ func startServer(t *testing.T) *testServer {
 	}
 
 	log := applog.NewLogger(cfg.Observability)
-	m := metrics.NewMetrics()
+	m := metrics.NewMetrics(prometheus.NewRegistry())
 
 	ipStrategy, err := appmiddleware.NewIPStrategy(cfg.IP)
 	if err != nil {
 		t.Fatalf("ip strategy: %v", err)
 	}
 
-	rdb, err := redisstore.NewClient(cfg.Redis)
+	rdb, err := redisstore.NewClient(cfg.Redis, m)
 	if err != nil {
 		t.Skipf("skipping e2e – Redis unavailable: %v", err)
 	}
@@ -243,13 +247,13 @@ func startServer(t *testing.T) *testServer {
 	})
 
 	ticketStore := redisstore.NewTicketStore(rdb)
-	connStore := redisstore.NewConnectionStore(rdb, "e2e-instance")
-	eventStore := redisstore.NewEventStore(rdb)
+	connStore := redisstore.NewConnectionStore(rdb, "e2e-instance", log)
+	eventStore := redisstore.NewEventStore(rdb, cfg.SSE.MaxQueueDepth)
 	limiter := ratelimit.NewLimiter(rdb, cfg.RateLimit)
 
 	ticketHandler := handlers.NewTicketHandler(cfg, ticketStore, limiter, ipStrategy, log, m)
 	sseHandler := handlers.NewSSEHandler(cfg, ticketStore, connStore, eventStore, ipStrategy, log, m)
-	eventHandler := handlers.NewEventHandler(eventStore, log)
+	eventHandler := handlers.NewEventHandler(eventStore, cfg.SSE, log)
 
 	srv := httpserver.NewServer(cfg, log, rdb, ipStrategy, ticketHandler, sseHandler, eventHandler)
 	srv.Serve()
@@ -276,24 +280,19 @@ type sseEvent struct {
 
 // readSSEEvents reads lines from body until ctx is done, collecting parsed SSE
 // events and counting heartbeat comment lines.
-func readSSEEvents(ctx context.Context, body interface {
-	Read(p []byte) (n int, err error)
-}) (events []sseEvent, heartbeats int) {
+// When ctx is cancelled the body is closed so scanner.Scan() unblocks
+// immediately instead of blocking forever on the next Read call.
+func readSSEEvents(ctx context.Context, body io.ReadCloser) (events []sseEvent, heartbeats int) {
+	// Unblock the scanner when the deadline fires.
+	go func() {
+		<-ctx.Done()
+		_ = body.Close()
+	}()
+
 	scanner := bufio.NewScanner(body)
 
 	var cur sseEvent
-	for {
-		// Check context before blocking on next line.
-		select {
-		case <-ctx.Done():
-			return
-		default:
-		}
-
-		if !scanner.Scan() {
-			return
-		}
-
+	for scanner.Scan() {
 		line := scanner.Text()
 		switch {
 		case strings.HasPrefix(line, ": heartbeat"):
@@ -311,6 +310,7 @@ func readSSEEvents(ctx context.Context, body interface {
 			}
 		}
 	}
+	return
 }
 
 // ── test ──────────────────────────────────────────────────────────────────────
@@ -422,18 +422,16 @@ func TestE2E_PushAndStream(t *testing.T) {
 	if err != nil {
 		t.Fatalf("stream request: %v", err)
 	}
-	defer func() { _ = streamResp.Body.Close() }()
-
 	if streamResp.StatusCode != http.StatusOK {
+		_ = streamResp.Body.Close()
 		t.Fatalf("stream: expected 200, got %d", streamResp.StatusCode)
 	}
 
 	// ── 4. read events & heartbeats ───────────────────────────────────────────
-	// Use a separate tighter deadline so we stop reading well before the outer
-	// test timeout and can still report results.
 	readCtx, readCancel := context.WithTimeout(context.Background(), 8*time.Second)
 	defer readCancel()
 
+	// readSSEEvents closes body when readCtx expires, unblocking the scanner.
 	events, heartbeats := readSSEEvents(readCtx, streamResp.Body)
 
 	t.Logf("received %d SSE events, %d heartbeats", len(events), heartbeats)

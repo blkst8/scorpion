@@ -25,6 +25,8 @@ type Server struct {
 	TLSCert         string        `yaml:"tls_cert"`
 	TLSKey          string        `yaml:"tls_key"`
 	ShutdownTimeout time.Duration `yaml:"shutdown_timeout"`
+	ReadTimeout     time.Duration `yaml:"read_timeout"`
+	IdleTimeout     time.Duration `yaml:"idle_timeout"`
 }
 
 // SSE contains Server-Sent Events configuration.
@@ -33,6 +35,8 @@ type SSE struct {
 	BatchSize         int           `yaml:"batch_size"`
 	HeartbeatInterval time.Duration `yaml:"heartbeat_interval"`
 	ConnTTL           time.Duration `yaml:"conn_ttl"`
+	MaxQueueDepth     int64         `yaml:"max_queue_depth"`
+	MaxEventBytes     int           `yaml:"max_event_bytes"`
 }
 
 // Auth contains authentication configuration.
@@ -58,16 +62,19 @@ type RateLimit struct {
 
 // Redis contains Redis connection configuration.
 type Redis struct {
-	Address  string `yaml:"address"`
-	Password string `yaml:"password"`
-	DB       int    `yaml:"db"`
+	Address    string `yaml:"address"`
+	Password   string `yaml:"password"`
+	DB         int    `yaml:"db"`
+	MaxRetries int    `yaml:"max_retries"`
 }
 
-// Observability contains metrics and logging configuration.
+// Observability contains metrics, logging, and tracing configuration.
 type Observability struct {
-	MetricsPort int    `yaml:"metrics_port"`
-	LogLevel    string `yaml:"log_level"`
-	LogFormat   string `yaml:"log_format"`
+	MetricsPort    int    `yaml:"metrics_port"`
+	LogLevel       string `yaml:"log_level"`
+	LogFormat      string `yaml:"log_format"`
+	TracingEnabled bool   `yaml:"tracing_enabled"`
+	OTLPEndpoint   string `yaml:"otlp_endpoint"`
 }
 
 // Load reads configuration from the given file path and returns a populated Config.
@@ -78,10 +85,14 @@ func Load(configPath string) (*Config, error) {
 	// Defaults
 	viper.SetDefault("server.port", 8443)
 	viper.SetDefault("server.shutdown_timeout", "30s")
+	viper.SetDefault("server.read_timeout", "10s")
+	viper.SetDefault("server.idle_timeout", "60s")
 	viper.SetDefault("sse.poll_interval", "1s")
 	viper.SetDefault("sse.batch_size", 100)
 	viper.SetDefault("sse.heartbeat_interval", "15s")
 	viper.SetDefault("sse.conn_ttl", "60s")
+	viper.SetDefault("sse.max_queue_depth", 10000)
+	viper.SetDefault("sse.max_event_bytes", 65536) // 64 KiB
 	viper.SetDefault("auth.ticket_ttl", "5m")
 	viper.SetDefault("ip.strategy", "remote_addr")
 	viper.SetDefault("ip.header", "X-Forwarded-For")
@@ -89,9 +100,17 @@ func Load(configPath string) (*Config, error) {
 	viper.SetDefault("ratelimit.ticket_burst", 3)
 	viper.SetDefault("repository.address", "localhost:6379")
 	viper.SetDefault("repository.db", 0)
+	viper.SetDefault("repository.max_retries", 3)
 	viper.SetDefault("observability.metrics_port", 9090)
 	viper.SetDefault("observability.log_level", "info")
 	viper.SetDefault("observability.log_format", "json")
+	viper.SetDefault("observability.tracing_enabled", false)
+
+	// Environment variable overrides for secrets and critical settings.
+	_ = viper.BindEnv("auth.token_secret", "SCORPION_AUTH_TOKEN_SECRET")
+	_ = viper.BindEnv("auth.ticket_secret", "SCORPION_AUTH_TICKET_SECRET")
+	_ = viper.BindEnv("repository.password", "SCORPION_REDIS_PASSWORD")
+	_ = viper.BindEnv("observability.otlp_endpoint", "SCORPION_OTLP_ENDPOINT")
 
 	// Environment variable overrides
 	viper.AutomaticEnv()

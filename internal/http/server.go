@@ -50,19 +50,27 @@ func NewServer(
 
 	e.GET("/healthz", handlers.HealthHandler(rdb))
 
-	e.Use(middleware.TokenMiddleware(cfg.Auth, ipStrategy, log))
-
 	v1 := e.Group("/v1")
-	v1.POST("/auth/ticket", ticketHandler.Handle)
-	v1.POST("/events/:client_id", eventHandler.Handle)
-	v1.GET("/stream/events", sseHandler.Handle)
+	// Ticket endpoint is intentionally unauthenticated — clients exchange a
+	// bearer token for a short-lived ticket here.
+	v1.POST("/auth/ticket", ticketHandler.Handle,
+		middleware.TokenMiddleware(cfg.Auth, ipStrategy, log),
+	)
+
+	// Authenticated routes.
+	authV1 := v1.Group("", middleware.TokenMiddleware(cfg.Auth, ipStrategy, log))
+	authV1.POST("/events/:client_id", eventHandler.Handle)
+	authV1.GET("/stream/events", sseHandler.Handle)
 
 	tlsCfg := &tls.Config{MinVersion: tls.VersionTLS12}
 
 	mainSrv := &http.Server{
-		Addr:      fmt.Sprintf(":%d", cfg.Server.Port),
-		Handler:   e,
-		TLSConfig: tlsCfg,
+		Addr:        fmt.Sprintf(":%d", cfg.Server.Port),
+		Handler:     e,
+		TLSConfig:   tlsCfg,
+		ReadTimeout: cfg.Server.ReadTimeout,
+		IdleTimeout: cfg.Server.IdleTimeout,
+		// WriteTimeout intentionally omitted — SSE streams are long-lived.
 	}
 
 	if err := http2.ConfigureServer(mainSrv, &http2.Server{}); err != nil {

@@ -11,6 +11,7 @@ import (
 
 	"github.com/blkst8/scorpion/internal/auth"
 	"github.com/blkst8/scorpion/internal/config"
+	applog "github.com/blkst8/scorpion/internal/log"
 	"github.com/blkst8/scorpion/internal/metrics"
 	redisstore "github.com/blkst8/scorpion/internal/repository"
 	"github.com/blkst8/scorpion/internal/stream"
@@ -107,109 +108,91 @@ func (h *SSEHandler) Handle(ctx echo.Context) error {
 		h.metrics.AuthIPMismatchTotal.Inc()
 		h.metrics.ConnectionsTotal.WithLabelValues("rejected").Inc()
 
-		h.log.Warn(
-			"IP mismatch",
-			"client_id", clientID,
-			"ticket_ip", ticketIP,
-			"request_ip", requestIP,
+		h.log.Warn("IP mismatch",
+			applog.FieldClientID, clientID,
+			applog.FieldTicketIP, ticketIP,
+			applog.FieldRequestIP, requestIP,
 		)
 
-		return ctx.JSON(
-			http.StatusForbidden,
-			map[string]string{
-				"error":   "access_denied",
-				"message": "Ticket is invalid, expired, or IP mismatch.",
-			},
-		)
+		return ctx.JSON(http.StatusForbidden, map[string]string{
+			"error":   "access_denied",
+			"message": "Ticket is invalid, expired, or IP mismatch.",
+		})
 	}
 
 	ok, err = h.tickets.ValidateAndConsume(r.Context(), clientID, requestIP, jti)
 	if err != nil {
-		h.log.Error(
-			"ticket validate error",
-			"client_id", clientID,
-			"error", err,
+		h.log.Error("ticket validate error",
+			applog.FieldClientID, clientID,
+			applog.FieldError, err,
 		)
 
-		return ctx.JSON(
-			http.StatusInternalServerError,
-			map[string]string{
-				"error":   "internal_error",
-				"message": "Ticket validation failed.",
-			},
-		)
+		return ctx.JSON(http.StatusInternalServerError, map[string]string{
+			"error":   "internal_error",
+			"message": "Ticket validation failed.",
+		})
 	}
 	if !ok {
 		h.metrics.ConnectionsTotal.WithLabelValues("rejected").Inc()
 
-		h.log.Warn(
-			"ticket not found or jti mismatch",
-			"client_id", clientID,
-			"ip", requestIP,
+		h.log.Warn("ticket not found or jti mismatch",
+			applog.FieldClientID, clientID,
+			applog.FieldIP, requestIP,
 		)
 
-		return ctx.JSON(
-			http.StatusForbidden,
-			map[string]string{
-				"error":   "access_denied",
-				"message": "Ticket is invalid, expired, or IP mismatch.",
-			},
-		)
+		return ctx.JSON(http.StatusForbidden, map[string]string{
+			"error":   "access_denied",
+			"message": "Ticket is invalid, expired, or IP mismatch.",
+		})
 	}
 
 	registered, err := h.conns.Register(r.Context(), clientID, requestIP, h.cfg.SSE.ConnTTL)
 	if err != nil {
-		h.log.Error(
-			"connection register error",
-			"client_id", clientID,
-			"error", err,
+		h.log.Error("connection register error",
+			applog.FieldClientID, clientID,
+			applog.FieldError, err,
 		)
 
-		return ctx.JSON(
-			http.StatusInternalServerError,
-			map[string]string{
-				"error":   "internal_error",
-				"message": "Failed to register connection.",
-			},
-		)
+		return ctx.JSON(http.StatusInternalServerError, map[string]string{
+			"error":   "internal_error",
+			"message": "Failed to register connection.",
+		})
 	}
 	if !registered {
 		h.metrics.DuplicateConnectionsTotal.Inc()
 		h.metrics.ConnectionsTotal.WithLabelValues("rejected").Inc()
 
-		h.log.Warn(
-			"duplicate connection",
-			"client_id", clientID,
-			"ip", requestIP,
+		h.log.Warn("duplicate connection",
+			applog.FieldClientID, clientID,
+			applog.FieldIP, requestIP,
 		)
 
-		return ctx.JSON(
-			http.StatusTooManyRequests,
-			map[string]string{
-				"error":   "duplicate_connection",
-				"message": "An active stream already exists for this user and IP.",
-			},
-		)
+		return ctx.JSON(http.StatusTooManyRequests, map[string]string{
+			"error":   "duplicate_connection",
+			"message": "An active stream already exists for this user and IP.",
+		})
 	}
 
 	h.metrics.ConnectionsTotal.WithLabelValues("ok").Inc()
 	h.metrics.ActiveConnections.Inc()
 	defer h.metrics.ActiveConnections.Dec()
 
-	h.log.Info(
-		"stream started",
-		"client_id", clientID,
-		"ip", requestIP,
-		"jti", jti,
+	h.log.Info("stream started",
+		applog.FieldClientID, clientID,
+		applog.FieldIP, requestIP,
+		applog.FieldJTI, jti,
 	)
 
 	defer func() {
-		h.conns.Delete(context.Background(), clientID, requestIP)
-
-		h.log.Info(
-			"stream closed",
-			"client_id", clientID,
-			"ip", requestIP,
+		if err := h.conns.Delete(context.Background(), clientID, requestIP); err != nil {
+			h.log.Warn("failed to delete connection on close",
+				applog.FieldClientID, clientID,
+				applog.FieldError, err,
+			)
+		}
+		h.log.Info("stream closed",
+			applog.FieldClientID, clientID,
+			applog.FieldIP, requestIP,
 		)
 	}()
 

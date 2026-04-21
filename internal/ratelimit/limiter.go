@@ -3,6 +3,7 @@ package ratelimit
 
 import (
 	"context"
+	_ "embed"
 	"fmt"
 	"time"
 
@@ -11,7 +12,13 @@ import (
 	"github.com/blkst8/scorpion/internal/config"
 )
 
-// Limiter is a Redis-backed per-IP sliding window rate limiter.
+//go:embed scripts/atomic_ratelimit.lua
+
+var atomicRateLimitScript string
+
+var atomicRateLimitLua = redis.NewScript(atomicRateLimitScript)
+
+// Limiter is a Redis-backed per-IP rate limiter using an atomic Lua script.
 type Limiter struct {
 	rdb *redis.Client
 	cfg config.RateLimit
@@ -31,28 +38,27 @@ type Result struct {
 	ResetAt   time.Time
 }
 
+const windowSeconds = 60
+
 // Allow checks whether the given IP is within the rate limit.
-// Uses Redis INCR + EXPIRE in a pipeline for an atomic sliding window.
+// Uses an atomic Lua script: INCR + EXPIRE-on-first-hit in one round-trip.
 func (l *Limiter) Allow(ctx context.Context, ip string) (Result, error) {
 	key := fmt.Sprintf("scorpion:ratelimit:%s", ip)
 	limit := l.cfg.TicketRPM + l.cfg.TicketBurst
 
-	pipe := l.rdb.Pipeline()
-	incrCmd := pipe.Incr(ctx, key)
-	pipe.Expire(ctx, key, 60*time.Second)
-	if _, err := pipe.Exec(ctx); err != nil {
-		return Result{}, fmt.Errorf("rate limit pipeline error: %w", err)
+	val, err := atomicRateLimitLua.Run(ctx, l.rdb, []string{key}, windowSeconds).Int()
+	if err != nil {
+		return Result{}, fmt.Errorf("rate limit script error: %w", err)
 	}
 
-	count := int(incrCmd.Val())
+	count := val
 	remaining := limit - count
 	if remaining < 0 {
 		remaining = 0
 	}
 
-	// Approximate reset time
-	ttl, _ := l.rdb.TTL(ctx, key).Result()
-	resetAt := time.Now().Add(ttl)
+	// ResetAt is approximated: accurate enough for the X-RateLimit-Reset header.
+	resetAt := time.Now().Add(windowSeconds * time.Second)
 
 	return Result{
 		Allowed:   count <= limit,

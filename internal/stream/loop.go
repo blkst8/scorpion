@@ -1,28 +1,87 @@
 package stream
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
-	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/blkst8/scorpion/internal/config"
+	"github.com/blkst8/scorpion/internal/domain"
+	applog "github.com/blkst8/scorpion/internal/log"
 	"github.com/blkst8/scorpion/internal/metrics"
 	redisstore "github.com/blkst8/scorpion/internal/repository"
+	"github.com/blkst8/scorpion/internal/telemetry"
 )
 
-// eventPayload represents a single SSE event from the Redis queue.
-type eventPayload struct {
-	ID   string          `json:"id"`
-	Type string          `json:"type"`
-	Data json.RawMessage `json:"data"`
+// sseWritePool pools bytes.Buffers used to build SSE frames without allocating
+// on every event.
+var sseWritePool = sync.Pool{New: func() any { return new(bytes.Buffer) }}
+
+// writeSSEEvent formats and writes one SSE event frame using a pooled buffer.
+func writeSSEEvent(w io.Writer, id, eventType, data string) error {
+	buf := sseWritePool.Get().(*bytes.Buffer)
+	buf.Reset()
+	buf.WriteString("id: ")
+	buf.WriteString(id)
+	buf.WriteByte('\n')
+	buf.WriteString("event: ")
+	buf.WriteString(eventType)
+	buf.WriteByte('\n')
+	buf.WriteString("data: ")
+	buf.WriteString(data)
+	buf.WriteString("\n\n")
+	_, err := w.Write(buf.Bytes())
+	sseWritePool.Put(buf)
+	return err
 }
 
-// RunLoop runs the SSE event loop: polling Redis, draining events, and sending heartbeats.
-// It blocks until the context is cancelled (client disconnects or server shuts down).
+// circuitBreaker is a minimal circuit breaker that opens after maxFails
+// consecutive failures and resets after resetAfter.
+type circuitBreaker struct {
+	maxFails   uint32
+	resetAfter time.Duration
+
+	consecutiveFails atomic.Uint32
+	openUntil        atomic.Int64 // unix nano; 0 = closed
+}
+
+func newCircuitBreaker(maxFails uint32, resetAfter time.Duration) *circuitBreaker {
+	return &circuitBreaker{maxFails: maxFails, resetAfter: resetAfter}
+}
+
+func (cb *circuitBreaker) isOpen() bool {
+	until := cb.openUntil.Load()
+	if until == 0 {
+		return false
+	}
+	if time.Now().UnixNano() > until {
+		cb.openUntil.Store(0)
+		cb.consecutiveFails.Store(0)
+		return false
+	}
+	return true
+}
+
+func (cb *circuitBreaker) recordSuccess() {
+	cb.consecutiveFails.Store(0)
+	cb.openUntil.Store(0)
+}
+
+func (cb *circuitBreaker) recordFailure() {
+	n := cb.consecutiveFails.Add(1)
+	if n >= cb.maxFails {
+		cb.openUntil.Store(time.Now().Add(cb.resetAfter).UnixNano())
+	}
+}
+
+// RunLoop runs the SSE event loop: polling Redis, draining events, and sending
+// heartbeats. Blocks until ctx is cancelled.
 func RunLoop(
 	ctx context.Context,
 	w io.Writer,
@@ -34,78 +93,113 @@ func RunLoop(
 	log *slog.Logger,
 	m *metrics.Metrics,
 ) {
+	rc := http.NewResponseController(w.(http.ResponseWriter))
+	cb := newCircuitBreaker(5, 10*time.Second)
+
 	pollTicker := time.NewTicker(cfg.PollInterval)
 	defer pollTicker.Stop()
-
 	heartbeatTicker := time.NewTicker(cfg.HeartbeatInterval)
 	defer heartbeatTicker.Stop()
-
-	connTTL := cfg.ConnTTL
 
 	for {
 		select {
 		case <-ctx.Done():
-			// Client close the connection
+			// Graceful drain: deliver any queued events before the connection closes.
+			drainAndFlush(context.Background(), w, rc, flusher, clientID, cfg, events, cb, log, m)
 			return
 
 		case <-heartbeatTicker.C:
-			// SSE connections traveling through proxies, load balancers, CDNs,
-			// and cloud infrastructure can be silently terminated if idle.
-			// Scorpion MUST send periodic **SSE comment lines** as heartbeats.
-			sendHeartbeat(w, flusher, clientID, clientIP, log, m)
+			if err := sendHeartbeat(w, rc, flusher, clientID, clientIP, log, m); err != nil {
+				log.Warn("heartbeat write failed — client gone",
+					applog.FieldClientID, clientID,
+					applog.FieldError, err,
+				)
+				return
+			}
 
 		case <-pollTicker.C:
-			// Read batch events and send it to client
-			if err := conns.Refresh(ctx, clientID, clientIP, connTTL); err != nil {
-				log.Error(
-					"failed to refresh conn TTL",
-					"client_id", clientID,
-					"ip", clientIP,
-					"error", err,
+			if err := conns.Refresh(ctx, clientID, clientIP, cfg.ConnTTL); err != nil {
+				log.Error("failed to refresh conn TTL",
+					applog.FieldClientID, clientID,
+					applog.FieldIP, clientIP,
+					applog.FieldError, err,
 				)
 			}
-
-			batch, err := events.Drain(ctx, clientID, cfg.BatchSize)
-			if err != nil {
-				log.Error(
-					"failed to drain events",
-					"client_id", clientID,
-					"error", err,
-				)
-
-				m.EventDrainErrorsTotal.Inc()
-
-				continue
-			}
-
-			m.EventsDrainedPerTick.Observe(float64(len(batch)))
-
-			for _, raw := range batch {
-				var e eventPayload
-				if err := json.Unmarshal([]byte(raw), &e); err != nil {
-					log.Warn(
-						"malformed event",
-						"client_id", clientID,
-						"raw", raw,
-						"error", err,
-					)
-
-					continue
-				}
-
-				eventType := e.Type
-				if eventType == "" {
-					eventType = "message"
-				}
-
-				fmt.Fprintf(w, "id: %s\nevent: %s\ndata: %s\n\n", e.ID, eventType, string(e.Data))
-
-				m.EventsDeliveredTotal.WithLabelValues(eventType).Inc()
-			}
-
-			if len(batch) > 0 {
-				flusher.Flush()
-			}
+			drainAndFlush(ctx, w, rc, flusher, clientID, cfg, events, cb, log, m)
 		}
+	}
+}
+
+// drainAndFlush reads a batch from Redis and writes SSE frames to the client.
+func drainAndFlush(
+	ctx context.Context,
+	w io.Writer,
+	rc *http.ResponseController,
+	flusher http.Flusher,
+	clientID string,
+	cfg config.SSE,
+	events *redisstore.EventStore,
+	cb *circuitBreaker,
+	log *slog.Logger,
+	m *metrics.Metrics,
+) {
+	_, span := telemetry.Global.Start(ctx, "event.drain",
+		telemetry.StringAttr(applog.FieldClientID, clientID),
+	)
+	defer span.End()
+
+	if cb.isOpen() {
+		return
+	}
+
+	batch, remaining, err := events.Drain(ctx, clientID, cfg.BatchSize)
+	if err != nil {
+		log.Error("failed to drain events",
+			applog.FieldClientID, clientID,
+			applog.FieldError, err,
+		)
+		m.EventDrainErrorsTotal.Inc()
+		cb.recordFailure()
+		span.SetError(err)
+		return
+	}
+	cb.recordSuccess()
+
+	m.EventsDrainedPerTick.Observe(float64(len(batch)))
+	m.QueueDepth.Set(float64(remaining))
+
+	for _, raw := range batch {
+		var e domain.EventPayload
+		if err := json.Unmarshal([]byte(raw), &e); err != nil {
+			log.Warn("malformed event",
+				applog.FieldClientID, clientID,
+				applog.FieldRaw, raw,
+				applog.FieldError, err,
+			)
+			continue
+		}
+
+		eventType := e.Type
+		if eventType == "" {
+			eventType = "message"
+		}
+
+		_ = rc.SetWriteDeadline(time.Now().Add(5 * time.Second))
+		if err := writeSSEEvent(w, e.ID, eventType, string(e.Data)); err != nil {
+			log.Warn("SSE write failed — dropping client",
+				applog.FieldClientID, clientID,
+				applog.FieldError, err,
+			)
+			_ = rc.SetWriteDeadline(time.Time{})
+			return
+		}
+
+		m.EventsDeliveredTotal.WithLabelValues(eventType).Inc()
+	}
+
+	if len(batch) > 0 {
+		_ = rc.SetWriteDeadline(time.Now().Add(5 * time.Second))
+		flusher.Flush()
+		_ = rc.SetWriteDeadline(time.Time{})
 	}
 }
