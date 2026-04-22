@@ -1,0 +1,8 @@
+.git/
+*.md
+test/
+.deploy/
+Dockerfile
+docker-compose.yml
+certs/
+

@@ -1,0 +1,103 @@
+# ─── Image ────────────────────────────────────────────────────────────────────
+image:
+  repository: ghcr.io/blkst8/scorpion
+  tag: "latest"
+  pullPolicy: IfNotPresent
+
+# ─── Replicas ─────────────────────────────────────────────────────────────────
+replicaCount: 2
+
+# ─── Service ──────────────────────────────────────────────────────────────────
+service:
+  type: ClusterIP
+  httpsPort: 8443
+  metricsPort: 9090
+
+# ─── Ingress ──────────────────────────────────────────────────────────────────
+ingress:
+  enabled: false
+  className: "nginx"
+  host: scorpion.example.com
+  tlsSecretName: scorpion-ingress-tls
+  annotations:
+    nginx.ingress.kubernetes.io/ssl-passthrough: "true"
+    nginx.ingress.kubernetes.io/backend-protocol: "HTTPS"
+
+# ─── TLS (server-side) ────────────────────────────────────────────────────────
+tls:
+  # Name of the k8s Secret containing tls.crt and tls.key
+  existingSecret: "scorpion-tls"
+  mountPath: "/app/certs"
+  certFile: "tls.crt"
+  keyFile: "tls.key"
+
+# ─── Application secrets (stored in k8s Secret) ───────────────────────────────
+secrets:
+  tokenSecret: "change-me-token-secret"
+  ticketSecret: "change-me-ticket-secret"
+  redisPassword: ""
+
+# ─── Redis ────────────────────────────────────────────────────────────────────
+redis:
+  address: "redis-master:6379"
+  db: 0
+
+# ─── SSE / server config (rendered into ConfigMap) ────────────────────────────
+config:
+  server:
+    shutdownTimeout: "30s"
+    readTimeout: "10s"
+    idleTimeout: "60s"
+  sse:
+    pollInterval: "1s"
+    batchSize: 100
+    heartbeatInterval: "15s"
+    connTTL: "60s"
+    maxQueueDepth: 10000
+    maxEventBytes: 65536
+  auth:
+    ticketTTL: "5m"
+  ip:
+    strategy: "remote_addr"
+    header: "X-Forwarded-For"
+    trustedCount: 1
+  ratelimit:
+    ticketRPM: 60
+    ticketBurst: 10
+  observability:
+    metricsPort: 9090
+    logLevel: "info"
+    logFormat: "json"
+    tracingEnabled: false
+    otlpEndpoint: ""
+
+# ─── Resources ────────────────────────────────────────────────────────────────
+resources:
+  requests:
+    cpu: "100m"
+    memory: "64Mi"
+  limits:
+    cpu: "500m"
+    memory: "256Mi"
+
+# ─── HPA ──────────────────────────────────────────────────────────────────────
+autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 70
+
+# ─── Pod settings ─────────────────────────────────────────────────────────────
+podAnnotations:
+  prometheus.io/scrape: "true"
+  prometheus.io/port: "9090"
+  prometheus.io/path: "/metrics"
+
+nodeSelector: {}
+tolerations: []
+affinity: {}
+
+serviceAccount:
+  create: false
+  name: ""
+

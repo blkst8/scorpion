@@ -1,0 +1,51 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "scorpion.fullname" . }}-config
+  labels:
+    {{- include "scorpion.labels" . | nindent 4 }}
+data:
+  config.yaml: |
+    server:
+      port: {{ .Values.service.httpsPort }}
+      tls_cert: "{{ .Values.tls.mountPath }}/{{ .Values.tls.certFile }}"
+      tls_key:  "{{ .Values.tls.mountPath }}/{{ .Values.tls.keyFile }}"
+      shutdown_timeout: {{ .Values.config.server.shutdownTimeout }}
+      read_timeout:     {{ .Values.config.server.readTimeout }}
+      idle_timeout:     {{ .Values.config.server.idleTimeout }}
+
+    sse:
+      poll_interval:      {{ .Values.config.sse.pollInterval }}
+      batch_size:         {{ .Values.config.sse.batchSize }}
+      heartbeat_interval: {{ .Values.config.sse.heartbeatInterval }}
+      conn_ttl:           {{ .Values.config.sse.connTTL }}
+      max_queue_depth:    {{ .Values.config.sse.maxQueueDepth }}
+      max_event_bytes:    {{ .Values.config.sse.maxEventBytes }}
+
+    auth:
+      token_secret:  ""   # injected via SCORPION_AUTH_TOKEN_SECRET env var
+      ticket_secret: ""   # injected via SCORPION_AUTH_TICKET_SECRET env var
+      ticket_ttl:    {{ .Values.config.auth.ticketTTL }}
+
+    ip:
+      strategy:      {{ .Values.config.ip.strategy }}
+      header:        {{ .Values.config.ip.header }}
+      trusted_count: {{ .Values.config.ip.trustedCount }}
+
+    ratelimit:
+      ticket_rpm:   {{ .Values.config.ratelimit.ticketRPM }}
+      ticket_burst: {{ .Values.config.ratelimit.ticketBurst }}
+
+    repository:
+      address:  ""   # injected via SCORPION_REPOSITORY_ADDRESS env var
+      password: ""   # injected via SCORPION_REPOSITORY_PASSWORD env var
+      db:       {{ .Values.redis.db }}
+      max_retries: 3
+
+    observability:
+      metrics_port:    {{ .Values.config.observability.metricsPort }}
+      log_level:       {{ .Values.config.observability.logLevel }}
+      log_format:      {{ .Values.config.observability.logFormat }}
+      tracing_enabled: {{ .Values.config.observability.tracingEnabled }}
+      otlp_endpoint:   "{{ .Values.config.observability.otlpEndpoint }}"
+

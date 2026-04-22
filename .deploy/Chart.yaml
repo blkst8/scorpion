@@ -1,0 +1,17 @@
+apiVersion: v2
+name: scorpion
+description: >
+  Scorpion — a high-performance Server-Sent Events (SSE) server backed by Redis,
+  with pre-auth JWT tickets, per-IP rate limiting, and built-in observability.
+type: application
+version: 0.1.0
+appVersion: "0.3.0"
+keywords:
+  - sse
+  - streaming
+  - redis
+  - realtime
+maintainers:
+  - name: blkst8
+home: https://github.com/blkst8/scorpion
+

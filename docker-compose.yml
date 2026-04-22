@@ -1,0 +1,54 @@
+services:
+
+  # ── Scorpion SSE server ───────────────────────────────────────────────────
+  scorpion:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: scorpion
+    restart: unless-stopped
+    ports:
+      - "8443:8443"   # HTTPS / HTTP/2
+      - "9090:9090"   # Prometheus metrics
+    volumes:
+      # Mount TLS certs (generate with: scripts/gen-certs.sh)
+      - ./certs:/app/certs:ro
+      # Override config if needed
+      # - ./config/config.yaml:/app/config/config.yaml:ro
+    environment:
+      # Override secrets via env vars – never commit real values.
+      SCORPION_AUTH_TOKEN_SECRET:  "${SCORPION_AUTH_TOKEN_SECRET:-change-me-token-secret}"
+      SCORPION_AUTH_TICKET_SECRET: "${SCORPION_AUTH_TICKET_SECRET:-change-me-ticket-secret}"
+      SCORPION_REPOSITORY_ADDRESS: "redis:6379"
+      SCORPION_REPOSITORY_PASSWORD: "${REDIS_PASSWORD:-}"
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "/app/scorpion", "health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  # ── Redis ─────────────────────────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: scorpion-redis
+    restart: unless-stopped
+    command: >
+      redis-server
+      --save 60 1
+      --loglevel warning
+      ${REDIS_PASSWORD:+--requirepass ${REDIS_PASSWORD}}
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+volumes:
+  redis-data:
+

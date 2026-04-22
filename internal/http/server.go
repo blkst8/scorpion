@@ -40,6 +40,7 @@ func NewServer(
 	ticketHandler *handlers.TicketHandler, // restruct these handlers
 	sseHandler *handlers.SSEHandler,
 	eventHandler *handlers.EventHandler,
+	pollHandler *handlers.PollHandler,
 ) *Server {
 	e := echo.New()
 	e.HideBanner = true
@@ -60,6 +61,7 @@ func NewServer(
 	// Authenticated routes.
 	authV1 := v1.Group("", middleware.TokenMiddleware(cfg.Auth, ipStrategy, log))
 	authV1.POST("/events/:client_id", eventHandler.Handle)
+	authV1.GET("/events/:client_id", pollHandler.Handle)
 	authV1.GET("/stream/events", sseHandler.Handle)
 
 	tlsCfg := &tls.Config{MinVersion: tls.VersionTLS12}

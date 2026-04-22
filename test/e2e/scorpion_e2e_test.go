@@ -254,8 +254,9 @@ func startServer(t *testing.T) *testServer {
 	ticketHandler := handlers.NewTicketHandler(cfg, ticketStore, limiter, ipStrategy, log, m)
 	sseHandler := handlers.NewSSEHandler(cfg, ticketStore, connStore, eventStore, ipStrategy, log, m)
 	eventHandler := handlers.NewEventHandler(eventStore, cfg.SSE, log)
+	pollHandler := handlers.NewPollHandler(eventStore, cfg.SSE, log)
 
-	srv := httpserver.NewServer(cfg, log, rdb, ipStrategy, ticketHandler, sseHandler, eventHandler)
+	srv := httpserver.NewServer(cfg, log, rdb, ipStrategy, ticketHandler, sseHandler, eventHandler, pollHandler)
 	srv.Serve()
 
 	t.Cleanup(func() {

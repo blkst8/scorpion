@@ -2,6 +2,10 @@ package e2e_test
 
 // Performance / scalability test for Scorpion.
 //
+// Two delivery mechanisms are benchmarked under identical load scenarios:
+//   - SSE  : persistent HTTP/2 server-sent event stream
+//   - Poll : periodic HTTP GET /v1/events/:client_id (configurable interval)
+//
 // What is measured
 // ────────────────
 // For every (numConnections × eventsPerClient) scenario:
