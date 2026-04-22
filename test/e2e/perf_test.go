@@ -84,6 +84,7 @@ type PerfResult struct {
 	ThroughputEPS  float64
 	TotalPushed    int
 	TotalDelivered int
+	TotalRequests  int // poll only: total HTTP GET requests made
 	WallTimeS      float64
 
 	// CPU
@@ -364,46 +365,253 @@ func TestPerf_ScalingConnections(t *testing.T) {
 
 	ts := startServer(t)
 
-	// Scenario A: scale concurrent connections, fixed events per client.
-	t.Log("=== Scenario A: scaling connections ===")
+	// ── SSE scenarios ──────────────────────────────────────────────────────
+	t.Log("=== SSE Scenario A: scaling connections ===")
 	connCounts := []int{1, 5, 10, 25, 50}
 	const fixedEvents = 20
-	connResults := make([]PerfResult, 0, len(connCounts))
+	sseConnResults := make([]PerfResult, 0, len(connCounts))
 	for _, n := range connCounts {
-		connResults = append(connResults, runPerfScenario(t, ts, n, fixedEvents))
-		time.Sleep(300 * time.Millisecond) // let GC / OS settle between runs
+		sseConnResults = append(sseConnResults, runPerfScenario(t, ts, n, fixedEvents))
+		time.Sleep(300 * time.Millisecond)
 	}
 
-	// Scenario B: scale events per client, fixed connections.
-	t.Log("=== Scenario B: scaling events per client ===")
+	t.Log("=== SSE Scenario B: scaling events per client ===")
 	eventCounts := []int{5, 10, 25, 50, 100}
 	const fixedConns = 10
-	eventResults := make([]PerfResult, 0, len(eventCounts))
+	sseEventResults := make([]PerfResult, 0, len(eventCounts))
 	for _, n := range eventCounts {
-		eventResults = append(eventResults, runPerfScenario(t, ts, fixedConns, n))
+		sseEventResults = append(sseEventResults, runPerfScenario(t, ts, fixedConns, n))
+		time.Sleep(300 * time.Millisecond)
+	}
+
+	// ── Poll scenarios (same loads) ────────────────────────────────────────
+	t.Log("=== Poll Scenario A: scaling connections ===")
+	pollConnResults := make([]PerfResult, 0, len(connCounts))
+	for _, n := range connCounts {
+		pollConnResults = append(pollConnResults, runPollScenario(t, ts, n, fixedEvents, 200*time.Millisecond))
+		time.Sleep(300 * time.Millisecond)
+	}
+
+	t.Log("=== Poll Scenario B: scaling events per client ===")
+	pollEventResults := make([]PerfResult, 0, len(eventCounts))
+	for _, n := range eventCounts {
+		pollEventResults = append(pollEventResults, runPollScenario(t, ts, fixedConns, n, 200*time.Millisecond))
 		time.Sleep(300 * time.Millisecond)
 	}
 
 	// ── write output ──────────────────────────────────────────────────────
 	outDir := "."
-	writePerfJSON(t, outDir, connResults, eventResults)
-	writePerfHTML(t, outDir, connResults, eventResults, fixedEvents, fixedConns)
+	writePerfJSON(t, outDir, sseConnResults, sseEventResults, pollConnResults, pollEventResults)
+	writePerfHTML(t, outDir, sseConnResults, sseEventResults, pollConnResults, pollEventResults, fixedEvents, fixedConns)
+}
+
+// ── polling scenario runner ───────────────────────────────────────────────────
+
+// pollResponse is the JSON returned by GET /v1/events/:client_id.
+type pollResponse struct {
+	Events []struct {
+		ID   string          `json:"id"`
+		Type string          `json:"type"`
+		Data json.RawMessage `json:"data"`
+	} `json:"events"`
+	Count int `json:"count"`
+}
+
+// runPollScenario is the polling equivalent of runPerfScenario.
+// Each virtual client pushes eventsPerClient events then polls GET
+// /v1/events/:client_id at pollInterval until all events are collected
+// or the deadline is exceeded.
+func runPollScenario(t *testing.T, ts *testServer, numConns, eventsPerClient int, pollInterval time.Duration) PerfResult {
+	t.Helper()
+
+	label := fmt.Sprintf("poll conns=%d events=%d interval=%s", numConns, eventsPerClient, pollInterval)
+	t.Logf("  ▶ %s", label)
+
+	runtime.GC()
+	heapBefore, _ := heapMB()
+	cpuUserBefore, cpuSysBefore := cpuTimeMS()
+	wallStart := time.Now()
+
+	var goroPeak atomic.Int64
+	stopGoro := make(chan struct{})
+	go func() {
+		for {
+			select {
+			case <-stopGoro:
+				return
+			default:
+				n := int64(runtime.NumGoroutine())
+				for {
+					cur := goroPeak.Load()
+					if n <= cur || goroPeak.CompareAndSwap(cur, n) {
+						break
+					}
+				}
+				time.Sleep(10 * time.Millisecond)
+			}
+		}
+	}()
+	defer close(stopGoro)
+
+	var (
+		mu          sync.Mutex
+		latenciesMS []float64
+	)
+	var totalDelivered atomic.Int64
+	var totalRequests atomic.Int64
+
+	httpClient := tlsHTTPClient(ts.pool)
+	var wg sync.WaitGroup
+	warnCh := make(chan string, numConns*4)
+
+	for i := 0; i < numConns; i++ {
+		wg.Add(1)
+		clientID := fmt.Sprintf("poll-client-%d", i)
+		bearer := makeBearerToken(t, "e2e-token-secret", clientID)
+
+		go func(clientID, bearer string) {
+			defer wg.Done()
+
+			// 1. push events with embedded timestamps
+			pushTimes := make(map[int]int64, eventsPerClient)
+			for seq := 0; seq < eventsPerClient; seq++ {
+				pushNano := time.Now().UnixNano()
+				pushTimes[seq] = pushNano
+				body, _ := json.Marshal(map[string]any{
+					"type": "perf.event",
+					"data": perfEvent{PushNano: pushNano, Seq: seq},
+				})
+
+				req, _ := http.NewRequest(http.MethodPost,
+					fmt.Sprintf("%s/v1/events/%s", ts.baseURL, clientID),
+					bytes.NewReader(body))
+				req.Header.Set("Content-Type", "application/json")
+				req.Header.Set("Authorization", "Bearer "+bearer)
+
+				resp, err := httpClient.Do(req)
+				if err != nil {
+					warnCh <- fmt.Sprintf("push %s seq %d: %v", clientID, seq, err)
+					return
+				}
+				_ = resp.Body.Close()
+				if resp.StatusCode != http.StatusCreated {
+					warnCh <- fmt.Sprintf("push %s seq %d: status %d", clientID, seq, resp.StatusCode)
+					return
+				}
+			}
+
+			// 2. poll until all events collected or timeout
+			collected := 0
+			deadline := time.Now().Add(30 * time.Second)
+			var localLats []float64
+
+			for collected < eventsPerClient && time.Now().Before(deadline) {
+				time.Sleep(pollInterval)
+
+				req, _ := http.NewRequest(http.MethodGet,
+					fmt.Sprintf("%s/v1/events/%s", ts.baseURL, clientID),
+					nil)
+				req.Header.Set("Authorization", "Bearer "+bearer)
+
+				resp, err := httpClient.Do(req)
+				totalRequests.Add(1)
+				if err != nil {
+					warnCh <- fmt.Sprintf("poll %s: %v", clientID, err)
+					continue
+				}
+
+				var pr pollResponse
+				_ = json.NewDecoder(resp.Body).Decode(&pr)
+				_ = resp.Body.Close()
+
+				receiveNano := time.Now().UnixNano()
+				for _, e := range pr.Events {
+					var pe perfEvent
+					if err := json.Unmarshal(e.Data, &pe); err == nil && pe.PushNano > 0 {
+						latMS := float64(receiveNano-pe.PushNano) / 1e6
+						if latMS >= 0 {
+							localLats = append(localLats, latMS)
+						}
+					}
+				}
+				collected += pr.Count
+			}
+
+			totalDelivered.Add(int64(collected))
+			mu.Lock()
+			latenciesMS = append(latenciesMS, localLats...)
+			mu.Unlock()
+		}(clientID, bearer)
+	}
+
+	wg.Wait()
+	close(warnCh)
+	for w := range warnCh {
+		t.Logf("    warn: %v", w)
+	}
+
+	wallSec := time.Since(wallStart).Seconds()
+	heapAfter, heapSysAfter := heapMB()
+	cpuUserAfter, cpuSysAfter := cpuTimeMS()
+
+	sortedLat := sortedCopy(latenciesMS)
+	delivered := int(totalDelivered.Load())
+
+	throughput := 0.0
+	if wallSec > 0 {
+		throughput = float64(delivered) / wallSec
+	}
+
+	res := PerfResult{
+		Scenario:       PerfScenario{Label: label, NumConnections: numConns, EventsPerClient: eventsPerClient},
+		HeapAllocMB:    heapAfter - heapBefore,
+		HeapSysMB:      heapSysAfter,
+		RSSAllocMB:     rssMemMB(),
+		GoroutinesPeak: int(goroPeak.Load()),
+		LatencyP50MS:   pctile(sortedLat, 50),
+		LatencyP95MS:   pctile(sortedLat, 95),
+		LatencyP99MS:   pctile(sortedLat, 99),
+		LatencyMaxMS:   pctile(sortedLat, 100),
+		ThroughputEPS:  throughput,
+		TotalPushed:    numConns * eventsPerClient,
+		TotalDelivered: delivered,
+		WallTimeS:      wallSec,
+		CPUUserMS:      cpuUserAfter - cpuUserBefore,
+		CPUSysMS:       cpuSysAfter - cpuSysBefore,
+		TotalRequests:  int(totalRequests.Load()),
+	}
+
+	t.Logf("    heap_delta=%.1fMB rss=%.1fMB goroutines=%d "+
+		"lat_p50=%.1fms lat_p95=%.1fms lat_p99=%.1fms lat_max=%.1fms "+
+		"throughput=%.0feps cpu_user=%.0fms cpu_sys=%.0fms "+
+		"delivered=%d/%d requests=%d wall=%.1fs",
+		res.HeapAllocMB, res.RSSAllocMB, res.GoroutinesPeak,
+		res.LatencyP50MS, res.LatencyP95MS, res.LatencyP99MS, res.LatencyMaxMS,
+		res.ThroughputEPS, res.CPUUserMS, res.CPUSysMS,
+		res.TotalDelivered, res.TotalPushed, res.TotalRequests, res.WallTimeS,
+	)
+
+	return res
 }
 
 // ── output writers ────────────────────────────────────────────────────────────
 
 type perfJSONReport struct {
-	GeneratedAt    string       `json:"generated_at"`
-	ConnScenarios  []PerfResult `json:"conn_scenarios"`
-	EventScenarios []PerfResult `json:"event_scenarios"`
+	GeneratedAt        string       `json:"generated_at"`
+	SSEConnScenarios   []PerfResult `json:"sse_conn_scenarios"`
+	SSEEventScenarios  []PerfResult `json:"sse_event_scenarios"`
+	PollConnScenarios  []PerfResult `json:"poll_conn_scenarios"`
+	PollEventScenarios []PerfResult `json:"poll_event_scenarios"`
 }
 
-func writePerfJSON(t *testing.T, dir string, conn, events []PerfResult) {
+func writePerfJSON(t *testing.T, dir string, sseConn, sseEvents, pollConn, pollEvents []PerfResult) {
 	t.Helper()
 	report := perfJSONReport{
-		GeneratedAt:    time.Now().Format(time.RFC3339),
-		ConnScenarios:  conn,
-		EventScenarios: events,
+		GeneratedAt:        time.Now().Format(time.RFC3339),
+		SSEConnScenarios:   sseConn,
+		SSEEventScenarios:  sseEvents,
+		PollConnScenarios:  pollConn,
+		PollEventScenarios: pollEvents,
 	}
 	data, err := json.MarshalIndent(report, "", "  ")
 	if err != nil {
@@ -419,14 +627,16 @@ func writePerfJSON(t *testing.T, dir string, conn, events []PerfResult) {
 }
 
 type perfHTMLData struct {
-	GeneratedAt    string
-	FixedEvents    int
-	FixedConns     int
-	ConnScenarios  []PerfResult
-	EventScenarios []PerfResult
+	GeneratedAt        string
+	FixedEvents        int
+	FixedConns         int
+	ConnScenarios      []PerfResult // SSE
+	EventScenarios     []PerfResult // SSE
+	PollConnScenarios  []PerfResult
+	PollEventScenarios []PerfResult
 }
 
-func writePerfHTML(t *testing.T, dir string, conn, events []PerfResult, fixedEvents, fixedConns int) {
+func writePerfHTML(t *testing.T, dir string, sseConn, sseEvents, pollConn, pollEvents []PerfResult, fixedEvents, fixedConns int) {
 	t.Helper()
 
 	tmpl, err := template.New("perf").Parse(perfReportTemplate)
@@ -437,11 +647,13 @@ func writePerfHTML(t *testing.T, dir string, conn, events []PerfResult, fixedEve
 
 	var buf bytes.Buffer
 	err = tmpl.Execute(&buf, perfHTMLData{
-		GeneratedAt:    time.Now().Format("2006-01-02 15:04:05 MST"),
-		FixedEvents:    fixedEvents,
-		FixedConns:     fixedConns,
-		ConnScenarios:  conn,
-		EventScenarios: events,
+		GeneratedAt:        time.Now().Format("2006-01-02 15:04:05 MST"),
+		FixedEvents:        fixedEvents,
+		FixedConns:         fixedConns,
+		ConnScenarios:      sseConn,
+		EventScenarios:     sseEvents,
+		PollConnScenarios:  pollConn,
+		PollEventScenarios: pollEvents,
 	})
 	if err != nil {
 		t.Logf("warn: template execute: %v", err)
