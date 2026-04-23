@@ -4,7 +4,6 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Scorpion Performance Report</title>
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <style>
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
   body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
@@ -13,11 +12,9 @@
   .ts  { font-size: 0.8rem; color: #94a3b8; margin-bottom: 2rem; }
   h2   { font-size: 1.1rem; color: #cbd5e1; margin: 2rem 0 1rem;
          border-bottom: 1px solid #334155; padding-bottom: 0.4rem; }
-  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(480px,1fr)); gap: 1.5rem; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(560px,1fr)); gap: 1.5rem; }
   .card { background: #1e293b; border-radius: 0.75rem; padding: 1.25rem; }
-  .card h3 { font-size: 0.85rem; color: #94a3b8; margin-bottom: 0.75rem;
-              text-transform: uppercase; letter-spacing: 0.05em; }
-  canvas { max-height: 260px; }
+  svg   { display: block; width: 100%; height: auto; }
   table  { width: 100%; border-collapse: collapse; font-size: 0.78rem; margin-top: 1.5rem; }
   th,td  { padding: 0.45rem 0.7rem; text-align: right; border-bottom: 1px solid #1e293b; }
   th     { background: #1e293b; color: #94a3b8; font-weight: 600;
@@ -32,24 +29,24 @@
 
 <h2>Scenario A &#8212; Increasing Concurrent Connections ({{.FixedEvents}} events / client)</h2>
 <div class="grid">
-  <div class="card"><h3>Heap Allocation Delta (MB)</h3><canvas id="cHeap"></canvas></div>
-  <div class="card"><h3>Resident Set Size (MB)</h3><canvas id="cRSS"></canvas></div>
-  <div class="card"><h3>Peak Goroutines</h3><canvas id="cGoroutines"></canvas></div>
-  <div class="card"><h3>Connection Setup Latency (ms)</h3><canvas id="cConnSetup"></canvas></div>
-  <div class="card"><h3>Event Delivery Latency (ms)</h3><canvas id="cLatency"></canvas></div>
-  <div class="card"><h3>Throughput (events / sec)</h3><canvas id="cThroughput"></canvas></div>
-  <div class="card"><h3>CPU Time (ms)</h3><canvas id="cCPU"></canvas></div>
-  <div class="card"><h3>Wall Time (s)</h3><canvas id="cWall"></canvas></div>
+  <div class="card">{{.SvgCHeap}}</div>
+  <div class="card">{{.SvgCRSS}}</div>
+  <div class="card">{{.SvgCGoroutines}}</div>
+  <div class="card">{{.SvgCConnSetup}}</div>
+  <div class="card">{{.SvgCLatency}}</div>
+  <div class="card">{{.SvgCThroughput}}</div>
+  <div class="card">{{.SvgCCPU}}</div>
+  <div class="card">{{.SvgCWall}}</div>
 </div>
 
 <h2>Scenario B &#8212; Increasing Events per Client ({{.FixedConns}} connections)</h2>
 <div class="grid">
-  <div class="card"><h3>Heap Allocation Delta (MB)</h3><canvas id="eHeap"></canvas></div>
-  <div class="card"><h3>Resident Set Size (MB)</h3><canvas id="eRSS"></canvas></div>
-  <div class="card"><h3>Event Delivery Latency (ms)</h3><canvas id="eLatency"></canvas></div>
-  <div class="card"><h3>Throughput (events / sec)</h3><canvas id="eThroughput"></canvas></div>
-  <div class="card"><h3>CPU Time (ms)</h3><canvas id="eCPU"></canvas></div>
-  <div class="card"><h3>Wall Time (s)</h3><canvas id="eWall"></canvas></div>
+  <div class="card">{{.SvgEHeap}}</div>
+  <div class="card">{{.SvgERSS}}</div>
+  <div class="card">{{.SvgELatency}}</div>
+  <div class="card">{{.SvgEThroughput}}</div>
+  <div class="card">{{.SvgECPU}}</div>
+  <div class="card">{{.SvgEWall}}</div>
 </div>
 
 <h2>Raw Data &#8212; Scenario A</h2>
@@ -104,69 +101,6 @@
   {{end}}
   </tbody>
 </table>
-
-<script>
-const P = {
-  blue:   'rgb(59,130,246)',  green: 'rgb(34,197,94)',
-  yellow: 'rgb(234,179,8)',   red:   'rgb(239,68,68)',
-  purple: 'rgb(168,85,247)', cyan:   'rgb(6,182,212)',
-  orange: 'rgb(249,115,22)',  pink:  'rgb(236,72,153)',
-};
-const OPTS = {
-  responsive: true,
-  plugins: { legend: { labels: { color: '#cbd5e1', font: { size: 11 } } } },
-  scales: {
-    x: { ticks: { color: '#64748b' }, grid: { color: '#1e293b' } },
-    y: { ticks: { color: '#64748b' }, grid: { color: '#334155' }, beginAtZero: true },
-  },
-};
-function mkLine(id, labels, datasets) {
-  new Chart(document.getElementById(id), {
-    type: 'line',
-    data: { labels, datasets: datasets.map(d => ({
-      ...d, tension: 0.3, pointRadius: 4, borderWidth: 2, fill: false,
-    })) },
-    options: OPTS,
-  });
-}
-
-// Scenario A
-const cL  = [{{range .ConnScenarios}}{{.Scenario.NumConnections}},{{end}}];
-mkLine('cHeap',       cL, [{ label: 'Heap Delta (MB)', data: [{{range .ConnScenarios}}{{printf "%.3f" .HeapAllocMB}},{{end}}], borderColor: P.blue }]);
-mkLine('cRSS',        cL, [{ label: 'RSS (MB)',        data: [{{range .ConnScenarios}}{{printf "%.3f" .RSSAllocMB}},{{end}}],  borderColor: P.cyan }]);
-mkLine('cGoroutines', cL, [{ label: 'Goroutines',      data: [{{range .ConnScenarios}}{{.GoroutinesPeak}},{{end}}],            borderColor: P.purple }]);
-mkLine('cConnSetup',  cL, [
-  { label: 'P50 (ms)', data: [{{range .ConnScenarios}}{{printf "%.3f" .ConnSetupP50MS}},{{end}}], borderColor: P.green },
-  { label: 'P95 (ms)', data: [{{range .ConnScenarios}}{{printf "%.3f" .ConnSetupP95MS}},{{end}}], borderColor: P.orange },
-]);
-mkLine('cLatency', cL, [
-  { label: 'P50 (ms)', data: [{{range .ConnScenarios}}{{printf "%.3f" .LatencyP50MS}},{{end}}], borderColor: P.green },
-  { label: 'P95 (ms)', data: [{{range .ConnScenarios}}{{printf "%.3f" .LatencyP95MS}},{{end}}], borderColor: P.yellow },
-  { label: 'P99 (ms)', data: [{{range .ConnScenarios}}{{printf "%.3f" .LatencyP99MS}},{{end}}], borderColor: P.red },
-]);
-mkLine('cThroughput', cL, [{ label: 'EPS', data: [{{range .ConnScenarios}}{{printf "%.3f" .ThroughputEPS}},{{end}}], borderColor: P.green }]);
-mkLine('cCPU', cL, [
-  { label: 'User (ms)', data: [{{range .ConnScenarios}}{{printf "%.3f" .CPUUserMS}},{{end}}], borderColor: P.orange },
-  { label: 'Sys (ms)',  data: [{{range .ConnScenarios}}{{printf "%.3f" .CPUSysMS}},{{end}}],  borderColor: P.pink },
-]);
-mkLine('cWall', cL, [{ label: 'Wall (s)', data: [{{range .ConnScenarios}}{{printf "%.3f" .WallTimeS}},{{end}}], borderColor: P.blue }]);
-
-// Scenario B
-const eL = [{{range .EventScenarios}}{{.Scenario.EventsPerClient}},{{end}}];
-mkLine('eHeap',      eL, [{ label: 'Heap Delta (MB)', data: [{{range .EventScenarios}}{{printf "%.3f" .HeapAllocMB}},{{end}}], borderColor: P.blue }]);
-mkLine('eRSS',       eL, [{ label: 'RSS (MB)',        data: [{{range .EventScenarios}}{{printf "%.3f" .RSSAllocMB}},{{end}}],  borderColor: P.cyan }]);
-mkLine('eLatency', eL, [
-  { label: 'P50 (ms)', data: [{{range .EventScenarios}}{{printf "%.3f" .LatencyP50MS}},{{end}}], borderColor: P.green },
-  { label: 'P95 (ms)', data: [{{range .EventScenarios}}{{printf "%.3f" .LatencyP95MS}},{{end}}], borderColor: P.yellow },
-  { label: 'P99 (ms)', data: [{{range .EventScenarios}}{{printf "%.3f" .LatencyP99MS}},{{end}}], borderColor: P.red },
-]);
-mkLine('eThroughput', eL, [{ label: 'EPS', data: [{{range .EventScenarios}}{{printf "%.3f" .ThroughputEPS}},{{end}}], borderColor: P.green }]);
-mkLine('eCPU', eL, [
-  { label: 'User (ms)', data: [{{range .EventScenarios}}{{printf "%.3f" .CPUUserMS}},{{end}}], borderColor: P.orange },
-  { label: 'Sys (ms)',  data: [{{range .EventScenarios}}{{printf "%.3f" .CPUSysMS}},{{end}}],  borderColor: P.pink },
-]);
-mkLine('eWall', eL, [{ label: 'Wall (s)', data: [{{range .EventScenarios}}{{printf "%.3f" .WallTimeS}},{{end}}], borderColor: P.blue }]);
-</script>
 </body>
 </html>
 

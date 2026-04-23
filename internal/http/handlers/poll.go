@@ -5,9 +5,8 @@ import (
 	"net/http"
 	"strconv"
 
+	"github.com/bytedance/sonic"
 	"github.com/labstack/echo/v4"
-
-	"encoding/json"
 
 	"github.com/blkst8/scorpion/internal/config"
 	"github.com/blkst8/scorpion/internal/domain"
@@ -65,7 +64,7 @@ func (h *PollHandler) Handle(ctx echo.Context) error {
 	payloads := make([]domain.EventPayload, 0, len(rawEvents))
 	for _, raw := range rawEvents {
 		var p domain.EventPayload
-		if err := json.Unmarshal([]byte(raw), &p); err != nil {
+		if err := sonic.Unmarshal([]byte(raw), &p); err != nil {
 			h.log.Warn("poll: skipping malformed event", applog.FieldClientID, clientID, applog.FieldError, err)
 			continue
 		}

@@ -32,6 +32,7 @@ import (
 	_ "embed"
 	"encoding/json"
 	"fmt"
+	"html/template"
 	"math"
 	"net/http"
 	"os"
@@ -42,8 +43,9 @@ import (
 	"sync/atomic"
 	"syscall"
 	"testing"
-	"text/template"
 	"time"
+
+	"github.com/bytedance/sonic"
 )
 
 //go:embed perf_report_template.html
@@ -212,7 +214,7 @@ func runPerfScenario(t *testing.T, ts *testServer, numConns, eventsPerClient int
 			// ── 1. push all events before opening the stream ───────────────
 			for seq := 0; seq < eventsPerClient; seq++ {
 				pushNano := time.Now().UnixNano()
-				body, _ := json.Marshal(map[string]any{
+				body, _ := sonic.Marshal(map[string]any{
 					"type": "perf.event",
 					"data": perfEvent{PushNano: pushNano, Seq: seq},
 				})
@@ -477,7 +479,7 @@ func runPollScenario(t *testing.T, ts *testServer, numConns, eventsPerClient int
 			for seq := 0; seq < eventsPerClient; seq++ {
 				pushNano := time.Now().UnixNano()
 				pushTimes[seq] = pushNano
-				body, _ := json.Marshal(map[string]any{
+				body, _ := sonic.Marshal(map[string]any{
 					"type": "perf.event",
 					"data": perfEvent{PushNano: pushNano, Seq: seq},
 				})
@@ -634,11 +636,90 @@ type perfHTMLData struct {
 	EventScenarios     []PerfResult // SSE
 	PollConnScenarios  []PerfResult
 	PollEventScenarios []PerfResult
+	// Pre-rendered SVG charts (no external JS/CDN needed).
+	SvgCHeap, SvgCRSS, SvgCGoroutines, SvgCConnSetup template.HTML
+	SvgCLatency, SvgCThroughput, SvgCCPU, SvgCWall   template.HTML
+	SvgEHeap, SvgERSS, SvgELatency                   template.HTML
+	SvgEThroughput, SvgECPU, SvgEWall                template.HTML
 }
 
 func writePerfHTML(t *testing.T, dir string, sseConn, sseEvents, pollConn, pollEvents []PerfResult, fixedEvents, fixedConns int) {
 	t.Helper()
 
+	// ── helpers ───────────────────────────────────────────────────────────────
+	connLabels := make([]string, len(sseConn))
+	for i, r := range sseConn {
+		connLabels[i] = fmt.Sprintf("%d", r.Scenario.NumConnections)
+	}
+	eventLabels := make([]string, len(sseEvents))
+	for i, r := range sseEvents {
+		eventLabels[i] = fmt.Sprintf("%d", r.Scenario.EventsPerClient)
+	}
+
+	cCol := func(fn func(PerfResult) float64) []float64 {
+		out := make([]float64, len(sseConn))
+		for i, r := range sseConn {
+			out[i] = fn(r)
+		}
+		return out
+	}
+	eCol := func(fn func(PerfResult) float64) []float64 {
+		out := make([]float64, len(sseEvents))
+		for i, r := range sseEvents {
+			out[i] = fn(r)
+		}
+		return out
+	}
+
+	line := func(title string, labels []string, ss []SVGSeries, unit string) template.HTML {
+		return template.HTML(SVGLineChart(title, labels, ss, unit))
+	}
+
+	// ── scenario A charts ─────────────────────────────────────────────────────
+	cHeap := line("Heap Allocation Delta (MB)", connLabels,
+		[]SVGSeries{{Name: "Heap Δ MB", Data: cCol(func(r PerfResult) float64 { return r.HeapAllocMB })}}, "MB")
+	cRSS := line("Resident Set Size (MB)", connLabels,
+		[]SVGSeries{{Name: "RSS MB", Data: cCol(func(r PerfResult) float64 { return r.RSSAllocMB })}}, "MB")
+	cGoro := line("Peak Goroutines", connLabels,
+		[]SVGSeries{{Name: "goroutines", Data: cCol(func(r PerfResult) float64 { return float64(r.GoroutinesPeak) })}}, "")
+	cConn := line("Connection Setup Latency (ms)", connLabels, []SVGSeries{
+		{Name: "P50", Data: cCol(func(r PerfResult) float64 { return r.ConnSetupP50MS })},
+		{Name: "P95", Data: cCol(func(r PerfResult) float64 { return r.ConnSetupP95MS })},
+	}, "ms")
+	cLat := line("Event Delivery Latency (ms)", connLabels, []SVGSeries{
+		{Name: "P50", Data: cCol(func(r PerfResult) float64 { return r.LatencyP50MS })},
+		{Name: "P95", Data: cCol(func(r PerfResult) float64 { return r.LatencyP95MS })},
+		{Name: "P99", Data: cCol(func(r PerfResult) float64 { return r.LatencyP99MS })},
+	}, "ms")
+	cTput := line("Throughput (EPS)", connLabels,
+		[]SVGSeries{{Name: "EPS", Data: cCol(func(r PerfResult) float64 { return r.ThroughputEPS })}}, "eps")
+	cCPU := line("CPU Time (ms)", connLabels, []SVGSeries{
+		{Name: "user", Data: cCol(func(r PerfResult) float64 { return r.CPUUserMS })},
+		{Name: "sys", Data: cCol(func(r PerfResult) float64 { return r.CPUSysMS })},
+	}, "ms")
+	cWall := line("Wall Time (s)", connLabels,
+		[]SVGSeries{{Name: "wall s", Data: cCol(func(r PerfResult) float64 { return r.WallTimeS })}}, "s")
+
+	// ── scenario B charts ─────────────────────────────────────────────────────
+	eHeap := line("Heap Allocation Delta (MB)", eventLabels,
+		[]SVGSeries{{Name: "Heap Δ MB", Data: eCol(func(r PerfResult) float64 { return r.HeapAllocMB })}}, "MB")
+	eRSS := line("Resident Set Size (MB)", eventLabels,
+		[]SVGSeries{{Name: "RSS MB", Data: eCol(func(r PerfResult) float64 { return r.RSSAllocMB })}}, "MB")
+	eLat := line("Event Delivery Latency (ms)", eventLabels, []SVGSeries{
+		{Name: "P50", Data: eCol(func(r PerfResult) float64 { return r.LatencyP50MS })},
+		{Name: "P95", Data: eCol(func(r PerfResult) float64 { return r.LatencyP95MS })},
+		{Name: "P99", Data: eCol(func(r PerfResult) float64 { return r.LatencyP99MS })},
+	}, "ms")
+	eTput := line("Throughput (EPS)", eventLabels,
+		[]SVGSeries{{Name: "EPS", Data: eCol(func(r PerfResult) float64 { return r.ThroughputEPS })}}, "eps")
+	eCPU := line("CPU Time (ms)", eventLabels, []SVGSeries{
+		{Name: "user", Data: eCol(func(r PerfResult) float64 { return r.CPUUserMS })},
+		{Name: "sys", Data: eCol(func(r PerfResult) float64 { return r.CPUSysMS })},
+	}, "ms")
+	eWall := line("Wall Time (s)", eventLabels,
+		[]SVGSeries{{Name: "wall s", Data: eCol(func(r PerfResult) float64 { return r.WallTimeS })}}, "s")
+
+	// ── render ────────────────────────────────────────────────────────────────
 	tmpl, err := template.New("perf").Parse(perfReportTemplate)
 	if err != nil {
 		t.Logf("warn: template parse: %v", err)
@@ -654,6 +735,11 @@ func writePerfHTML(t *testing.T, dir string, sseConn, sseEvents, pollConn, pollE
 		EventScenarios:     sseEvents,
 		PollConnScenarios:  pollConn,
 		PollEventScenarios: pollEvents,
+		SvgCHeap:           cHeap, SvgCRSS: cRSS, SvgCGoroutines: cGoro,
+		SvgCConnSetup: cConn, SvgCLatency: cLat, SvgCThroughput: cTput,
+		SvgCCPU: cCPU, SvgCWall: cWall,
+		SvgEHeap: eHeap, SvgERSS: eRSS, SvgELatency: eLat,
+		SvgEThroughput: eTput, SvgECPU: eCPU, SvgEWall: eWall,
 	})
 	if err != nil {
 		t.Logf("warn: template execute: %v", err)

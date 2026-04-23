@@ -31,6 +31,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/bytedance/sonic"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/prometheus/client_golang/prometheus"
 
@@ -210,11 +211,11 @@ func startServer(t *testing.T) *testServer {
 			Strategy: "remote_addr",
 		},
 		RateLimit: config.RateLimit{
-			TicketRPM:   60,
-			TicketBurst: 10,
+			TicketRPM:   6000,
+			TicketBurst: 500,
 		},
 		Redis: config.Redis{
-			Address: "localhost:6379",
+			Address: "127.0.0.1:6379",
 			DB:      15, // isolated DB – won't pollute other data
 		},
 		Observability: config.Observability{
@@ -339,24 +340,31 @@ func TestE2E_PushAndStream(t *testing.T) {
 	httpClient := tlsHTTPClient(ts.pool)
 	pushedIDs := make([]string, 0, numEvents)
 
+	// Bearer token is needed both for pushing events and for the ticket endpoint.
+	bearerToken := makeBearerToken(t, "e2e-token-secret", clientID)
+
 	for i := 1; i <= numEvents; i++ {
 		payload := pushRequest{
 			Type: "order.updated",
 			Data: json.RawMessage(fmt.Sprintf(`{"seq":%d,"status":"processing"}`, i)),
 		}
 
-		body, _ := json.Marshal(payload)
-		resp, err := httpClient.Post(
+		body, _ := sonic.Marshal(payload)
+		req, _ := http.NewRequest(http.MethodPost,
 			fmt.Sprintf("%s/v1/events/%s", ts.baseURL, clientID),
-			"application/json",
 			bytes.NewReader(body),
 		)
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Authorization", "Bearer "+bearerToken)
+		resp, err := httpClient.Do(req)
 		if err != nil {
 			t.Fatalf("push event %d: %v", i, err)
 		}
 
 		if resp.StatusCode != http.StatusCreated {
-			t.Fatalf("push event %d: expected 201, got %d", i, resp.StatusCode)
+			bodyBytes, _ := io.ReadAll(resp.Body)
+			_ = resp.Body.Close()
+			t.Fatalf("push event %d: expected 201, got %d, body: %s", i, resp.StatusCode, string(bodyBytes))
 		}
 
 		var pr pushResponse
@@ -379,7 +387,6 @@ func TestE2E_PushAndStream(t *testing.T) {
 	t.Logf("pushed %d events for client %q: %v", numEvents, clientID, pushedIDs)
 
 	// ── 2. obtain a ticket ────────────────────────────────────────────────────
-	bearerToken := makeBearerToken(t, "e2e-token-secret", clientID)
 
 	ticketReq, _ := http.NewRequest(http.MethodPost, ts.baseURL+"/v1/auth/ticket", nil)
 	ticketReq.Header.Set("Authorization", "Bearer "+bearerToken)

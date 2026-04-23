@@ -1,0 +1,268 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Scorpion Performance Report</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+         background: #0f172a; color: #e2e8f0; padding: 2rem; }
+  h1   { font-size: 1.6rem; color: #f8fafc; margin-bottom: 0.25rem; }
+  .ts  { font-size: 0.8rem; color: #94a3b8; margin-bottom: 2rem; }
+  h2   { font-size: 1.1rem; color: #cbd5e1; margin: 2rem 0 1rem;
+         border-bottom: 1px solid #334155; padding-bottom: 0.4rem; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(480px,1fr)); gap: 1.5rem; }
+  .card { background: #1e293b; border-radius: 0.75rem; padding: 1.25rem; }
+  .card h3 { font-size: 0.85rem; color: #94a3b8; margin-bottom: 0.75rem;
+              text-transform: uppercase; letter-spacing: 0.05em; }
+  canvas { max-height: 260px; }
+  table  { width: 100%; border-collapse: collapse; font-size: 0.78rem; margin-top: 1.5rem; }
+  th,td  { padding: 0.45rem 0.7rem; text-align: right; border-bottom: 1px solid #1e293b; }
+  th     { background: #1e293b; color: #94a3b8; font-weight: 600;
+           text-transform: uppercase; letter-spacing: 0.04em; }
+  td:first-child, th:first-child { text-align: left; }
+  tr:hover td { background: rgba(30,41,59,0.5); }
+</style>
+</head>
+<body>
+<h1>&#9889; Scorpion &#8212; Performance Report</h1>
+<p class="ts">Generated: 2026-04-23 02:42:20 +0330</p>
+
+<h2>Scenario A &#8212; Increasing Concurrent Connections (20 events / client)</h2>
+<div class="grid">
+  <div class="card"><h3>Heap Allocation Delta (MB)</h3><canvas id="cHeap"></canvas></div>
+  <div class="card"><h3>Resident Set Size (MB)</h3><canvas id="cRSS"></canvas></div>
+  <div class="card"><h3>Peak Goroutines</h3><canvas id="cGoroutines"></canvas></div>
+  <div class="card"><h3>Connection Setup Latency (ms)</h3><canvas id="cConnSetup"></canvas></div>
+  <div class="card"><h3>Event Delivery Latency (ms)</h3><canvas id="cLatency"></canvas></div>
+  <div class="card"><h3>Throughput (events / sec)</h3><canvas id="cThroughput"></canvas></div>
+  <div class="card"><h3>CPU Time (ms)</h3><canvas id="cCPU"></canvas></div>
+  <div class="card"><h3>Wall Time (s)</h3><canvas id="cWall"></canvas></div>
+</div>
+
+<h2>Scenario B &#8212; Increasing Events per Client (10 connections)</h2>
+<div class="grid">
+  <div class="card"><h3>Heap Allocation Delta (MB)</h3><canvas id="eHeap"></canvas></div>
+  <div class="card"><h3>Resident Set Size (MB)</h3><canvas id="eRSS"></canvas></div>
+  <div class="card"><h3>Event Delivery Latency (ms)</h3><canvas id="eLatency"></canvas></div>
+  <div class="card"><h3>Throughput (events / sec)</h3><canvas id="eThroughput"></canvas></div>
+  <div class="card"><h3>CPU Time (ms)</h3><canvas id="eCPU"></canvas></div>
+  <div class="card"><h3>Wall Time (s)</h3><canvas id="eWall"></canvas></div>
+</div>
+
+<h2>Raw Data &#8212; Scenario A</h2>
+<table>
+  <thead><tr>
+    <th>Conns</th><th>Evts/Client</th>
+    <th>Heap Delta (MB)</th><th>RSS (MB)</th><th>Goroutines</th>
+    <th>Conn P50 (ms)</th><th>Conn P95 (ms)</th>
+    <th>Lat P50 (ms)</th><th>Lat P95 (ms)</th><th>Lat P99 (ms)</th><th>Lat Max (ms)</th>
+    <th>EPS</th><th>CPU User (ms)</th><th>CPU Sys (ms)</th>
+    <th>Delivered</th><th>Pushed</th><th>Wall (s)</th>
+  </tr></thead>
+  <tbody>
+  
+  <tr>
+    <td>1</td><td>20</td>
+    <td>1.00</td><td>23.7</td>
+    <td>14</td>
+    <td>2005.2</td><td>2005.2</td>
+    <td>0.0</td><td>0.0</td>
+    <td>0.0</td><td>0.0</td>
+    <td>0</td>
+    <td>276</td><td>222</td>
+    <td>0</td><td>20</td>
+    <td>27.06</td>
+  </tr>
+  
+  <tr>
+    <td>5</td><td>20</td>
+    <td>0.63</td><td>26.4</td>
+    <td>44</td>
+    <td>2006.8</td><td>2008.2</td>
+    <td>16818.2</td><td>16842.6</td>
+    <td>16843.3</td><td>16843.3</td>
+    <td>2</td>
+    <td>928</td><td>476</td>
+    <td>50</td><td>100</td>
+    <td>27.12</td>
+  </tr>
+  
+  <tr>
+    <td>10</td><td>20</td>
+    <td>1.31</td><td>28.1</td>
+    <td>65</td>
+    <td>4.1</td><td>2006.8</td>
+    <td>16782.4</td><td>16836.3</td>
+    <td>16841.4</td><td>16841.5</td>
+    <td>5</td>
+    <td>867</td><td>380</td>
+    <td>125</td><td>200</td>
+    <td>27.07</td>
+  </tr>
+  
+  <tr>
+    <td>25</td><td>20</td>
+    <td>2.62</td><td>34.3</td>
+    <td>176</td>
+    <td>211.6</td><td>2015.4</td>
+    <td>25241.8</td><td>25455.4</td>
+    <td>25487.3</td><td>25488.5</td>
+    <td>20</td>
+    <td>3587</td><td>1098</td>
+    <td>550</td><td>500</td>
+    <td>27.29</td>
+  </tr>
+  
+  <tr>
+    <td>50</td><td>20</td>
+    <td>4.80</td><td>43.6</td>
+    <td>351</td>
+    <td>206.6</td><td>2009.5</td>
+    <td>25239.2</td><td>25456.0</td>
+    <td>25492.4</td><td>25495.7</td>
+    <td>48</td>
+    <td>4415</td><td>1449</td>
+    <td>1300</td><td>1000</td>
+    <td>27.30</td>
+  </tr>
+  
+  </tbody>
+</table>
+
+<h2>Raw Data &#8212; Scenario B</h2>
+<table>
+  <thead><tr>
+    <th>Conns</th><th>Evts/Client</th>
+    <th>Heap Delta (MB)</th><th>RSS (MB)</th>
+    <th>Lat P50 (ms)</th><th>Lat P95 (ms)</th><th>Lat P99 (ms)</th><th>Lat Max (ms)</th>
+    <th>EPS</th><th>CPU User (ms)</th><th>CPU Sys (ms)</th>
+    <th>Delivered</th><th>Pushed</th><th>Wall (s)</th>
+  </tr></thead>
+  <tbody>
+  
+  <tr>
+    <td>10</td><td>5</td>
+    <td>-0.29</td><td>36.8</td>
+    <td>0.0</td><td>0.0</td>
+    <td>0.0</td><td>0.0</td>
+    <td>0</td>
+    <td>709</td><td>376</td>
+    <td>0</td><td>50</td>
+    <td>27.04</td>
+  </tr>
+  
+  <tr>
+    <td>10</td><td>10</td>
+    <td>1.11</td><td>37.6</td>
+    <td>25246.1</td><td>25269.3</td>
+    <td>25269.6</td><td>25269.9</td>
+    <td>4</td>
+    <td>1063</td><td>488</td>
+    <td>100</td><td>100</td>
+    <td>25.27</td>
+  </tr>
+  
+  <tr>
+    <td>10</td><td>25</td>
+    <td>2.55</td><td>38.0</td>
+    <td>25276.3</td><td>25335.1</td>
+    <td>25340.2</td><td>25340.6</td>
+    <td>10</td>
+    <td>1648</td><td>540</td>
+    <td>250</td><td>250</td>
+    <td>25.34</td>
+  </tr>
+  
+  <tr>
+    <td>10</td><td>50</td>
+    <td>2.63</td><td>38.6</td>
+    <td>25307.4</td><td>25423.4</td>
+    <td>25432.9</td><td>25433.9</td>
+    <td>20</td>
+    <td>2495</td><td>659</td>
+    <td>500</td><td>500</td>
+    <td>25.43</td>
+  </tr>
+  
+  <tr>
+    <td>10</td><td>100</td>
+    <td>2.53</td><td>39.1</td>
+    <td>25383.5</td><td>25616.2</td>
+    <td>25640.2</td><td>25645.8</td>
+    <td>39</td>
+    <td>4383</td><td>1054</td>
+    <td>1000</td><td>1000</td>
+    <td>25.65</td>
+  </tr>
+  
+  </tbody>
+</table>
+
+<script>
+const P = {
+  blue:   'rgb(59,130,246)',  green: 'rgb(34,197,94)',
+  yellow: 'rgb(234,179,8)',   red:   'rgb(239,68,68)',
+  purple: 'rgb(168,85,247)', cyan:   'rgb(6,182,212)',
+  orange: 'rgb(249,115,22)',  pink:  'rgb(236,72,153)',
+};
+const OPTS = {
+  responsive: true,
+  plugins: { legend: { labels: { color: '#cbd5e1', font: { size: 11 } } } },
+  scales: {
+    x: { ticks: { color: '#64748b' }, grid: { color: '#1e293b' } },
+    y: { ticks: { color: '#64748b' }, grid: { color: '#334155' }, beginAtZero: true },
+  },
+};
+function mkLine(id, labels, datasets) {
+  new Chart(document.getElementById(id), {
+    type: 'line',
+    data: { labels, datasets: datasets.map(d => ({
+      ...d, tension: 0.3, pointRadius: 4, borderWidth: 2, fill: false,
+    })) },
+    options: OPTS,
+  });
+}
+
+// Scenario A
+const cL  = [1,5,10,25,50,];
+mkLine('cHeap',       cL, [{ label: 'Heap Delta (MB)', data: [0.997,0.634,1.309,2.625,4.797,], borderColor: P.blue }]);
+mkLine('cRSS',        cL, [{ label: 'RSS (MB)',        data: [23.652,26.355,28.074,34.262,43.590,],  borderColor: P.cyan }]);
+mkLine('cGoroutines', cL, [{ label: 'Goroutines',      data: [14,44,65,176,351,],            borderColor: P.purple }]);
+mkLine('cConnSetup',  cL, [
+  { label: 'P50 (ms)', data: [2005.159,2006.834,4.091,211.641,206.596,], borderColor: P.green },
+  { label: 'P95 (ms)', data: [2005.159,2008.230,2006.820,2015.371,2009.509,], borderColor: P.orange },
+]);
+mkLine('cLatency', cL, [
+  { label: 'P50 (ms)', data: [0.000,16818.179,16782.351,25241.769,25239.169,], borderColor: P.green },
+  { label: 'P95 (ms)', data: [0.000,16842.552,16836.252,25455.382,25456.025,], borderColor: P.yellow },
+  { label: 'P99 (ms)', data: [0.000,16843.274,16841.441,25487.316,25492.410,], borderColor: P.red },
+]);
+mkLine('cThroughput', cL, [{ label: 'EPS', data: [0.000,1.844,4.618,20.154,47.626,], borderColor: P.green }]);
+mkLine('cCPU', cL, [
+  { label: 'User (ms)', data: [276.119,927.697,866.682,3587.063,4415.237,], borderColor: P.orange },
+  { label: 'Sys (ms)',  data: [221.555,475.587,379.959,1097.747,1448.675,],  borderColor: P.pink },
+]);
+mkLine('cWall', cL, [{ label: 'Wall (s)', data: [27.064,27.119,27.070,27.289,27.296,], borderColor: P.blue }]);
+
+// Scenario B
+const eL = [5,10,25,50,100,];
+mkLine('eHeap',      eL, [{ label: 'Heap Delta (MB)', data: [-0.285,1.106,2.547,2.634,2.535,], borderColor: P.blue }]);
+mkLine('eRSS',       eL, [{ label: 'RSS (MB)',        data: [36.805,37.625,37.988,38.562,39.148,],  borderColor: P.cyan }]);
+mkLine('eLatency', eL, [
+  { label: 'P50 (ms)', data: [0.000,25246.136,25276.300,25307.355,25383.522,], borderColor: P.green },
+  { label: 'P95 (ms)', data: [0.000,25269.328,25335.080,25423.433,25616.183,], borderColor: P.yellow },
+  { label: 'P99 (ms)', data: [0.000,25269.649,25340.159,25432.908,25640.213,], borderColor: P.red },
+]);
+mkLine('eThroughput', eL, [{ label: 'EPS', data: [0.000,3.957,9.865,19.659,38.992,], borderColor: P.green }]);
+mkLine('eCPU', eL, [
+  { label: 'User (ms)', data: [708.667,1063.377,1647.682,2495.398,4383.148,], borderColor: P.orange },
+  { label: 'Sys (ms)',  data: [376.116,488.419,539.766,659.232,1054.222,],  borderColor: P.pink },
+]);
+mkLine('eWall', eL, [{ label: 'Wall (s)', data: [27.041,25.270,25.341,25.434,25.646,], borderColor: P.blue }]);
+</script>
+</body>
+</html>
+
