@@ -1,5 +1,3 @@
-#!/usr/bin/env lua
--- atomic_ticket_validate.lua
 -- Atomically validates and deletes a pre-auth ticket.
 -- Returns: 1 = success, 0 = not found, -1 = jti mismatch
 
