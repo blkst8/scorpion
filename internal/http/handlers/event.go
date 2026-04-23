@@ -1,10 +1,10 @@
 package handlers
 
 import (
-	"encoding/json"
 	"log/slog"
 	"net/http"
 
+	"github.com/bytedance/sonic"
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
 
@@ -67,7 +67,7 @@ func (h *EventHandler) Handle(ctx echo.Context) error {
 		Data: req.Data,
 	}
 
-	raw, err := json.Marshal(payload)
+	raw, err := sonic.Marshal(payload)
 	if err != nil {
 		h.log.Error("failed to marshal event payload", applog.FieldClientID, clientID, applog.FieldError, err)
 		return ctx.JSON(http.StatusInternalServerError, errorResponse{Error: "internal_error", Message: "Failed to encode event."})

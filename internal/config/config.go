@@ -62,10 +62,12 @@ type RateLimit struct {
 
 // Redis contains Redis connection configuration.
 type Redis struct {
-	Address    string `yaml:"address"`
-	Password   string `yaml:"password"`
-	DB         int    `yaml:"db"`
-	MaxRetries int    `yaml:"max_retries"`
+	Address      string `yaml:"address"`
+	Password     string `yaml:"password"`
+	DB           int    `yaml:"db"`
+	MaxRetries   int    `yaml:"max_retries"`
+	PoolSize     int    `yaml:"pool_size"`      // 0 = go-redis default (10 × GOMAXPROCS)
+	MinIdleConns int    `yaml:"min_idle_conns"` // 0 = go-redis default
 }
 
 // Observability contains metrics, logging, and tracing configuration.

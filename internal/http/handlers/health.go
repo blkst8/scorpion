@@ -23,6 +23,6 @@ func HealthHandler(rdb *redis.Client) echo.HandlerFunc {
 			})
 		}
 
-		return c.NoContent(http.StatusNoContent)
+		return c.JSON(http.StatusOK, map[string]string{"status": "ok"})
 	}
 }

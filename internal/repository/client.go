@@ -48,6 +48,8 @@ func NewClient(cfg config.Redis, m *metrics.Metrics) (*redis.Client, error) {
 		MaxRetries:      cfg.MaxRetries,
 		MinRetryBackoff: 8 * time.Millisecond,
 		MaxRetryBackoff: 512 * time.Millisecond,
+		PoolSize:        cfg.PoolSize,
+		MinIdleConns:    cfg.MinIdleConns,
 	})
 
 	if m != nil {
