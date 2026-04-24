@@ -33,7 +33,7 @@ func TokenMiddleware(cfg config.Auth, ipStrategy realclientip.Strategy, log *slo
 			rawToken := authHeader[7:]
 			clientID, err := auth.ValidateRealToken(cfg, rawToken)
 			if err != nil {
-				log.Warn("appmiddleware token validation failed", "error", err.Error())
+				log.Warn("app token validation failed", "error", err.Error())
 				return c.JSON(http.StatusUnauthorized, map[string]string{
 					"error":   "invalid_token",
 					"message": "The provided token is invalid or expired.",

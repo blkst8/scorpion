@@ -56,14 +56,14 @@ import (
 	"github.com/bytedance/sonic"
 	"github.com/prometheus/client_golang/prometheus"
 
-	appmiddleware "github.com/blkst8/scorpion/internal/appmiddleware"
+	appmiddleware "github.com/blkst8/scorpion/internal/app"
 	"github.com/blkst8/scorpion/internal/config"
 	httpserver "github.com/blkst8/scorpion/internal/http"
 	"github.com/blkst8/scorpion/internal/http/handlers"
 	applog "github.com/blkst8/scorpion/internal/log"
 	"github.com/blkst8/scorpion/internal/metrics"
 	"github.com/blkst8/scorpion/internal/ratelimit"
-	redisstore "github.com/blkst8/scorpion/internal/repository"
+	"github.com/blkst8/scorpion/internal/repository"
 )
 
 // ── types ──────────────────────────────────────────────────────────────────────
@@ -170,7 +170,7 @@ func startHCServer(t *testing.T) *testServer {
 		t.Fatalf("ip strategy: %v", err)
 	}
 
-	rdb, err := redisstore.NewClient(cfg.Redis, m)
+	rdb, err := appmiddleware.NewClient(cfg.Redis, m)
 	if err != nil {
 		t.Skipf("skipping HC e2e – Redis unavailable: %v", err)
 	}
@@ -184,17 +184,24 @@ func startHCServer(t *testing.T) *testServer {
 		_ = rdb.Close()
 	})
 
-	ticketStore := redisstore.NewTicketStore(rdb)
-	connStore := redisstore.NewConnectionStore(rdb, "hc-e2e-instance", log)
-	eventStore := redisstore.NewEventStore(rdb, cfg.SSE.MaxQueueDepth)
+	ticketStore := repository.NewTicketStore(rdb)
+	connStore := repository.NewConnectionStore(rdb, "hc-e2e-instance", log)
+	eventStore := repository.NewEventStore(rdb, cfg.SSE.MaxQueueDepth)
 	limiter := ratelimit.NewLimiter(rdb, cfg.RateLimit)
 
-	ticketHandler := handlers.NewTicketHandler(cfg, ticketStore, limiter, ipStrategy, log, m)
-	sseHandler := handlers.NewSSEHandler(cfg, ticketStore, connStore, eventStore, ipStrategy, log, m)
-	eventHandler := handlers.NewEventHandler(eventStore, cfg.SSE, log)
-	pollHandler := handlers.NewPollHandler(eventStore, cfg.SSE, log)
+	h := handlers.HTTPHandlers{
+		RDB:        rdb,
+		Events:     eventStore,
+		Tickets:    ticketStore,
+		Conns:      connStore,
+		Limiter:    limiter,
+		IPStrategy: ipStrategy,
+		Cfg:        &cfg,
+		Log:        log,
+		Metrics:    m,
+	}
 
-	srv := httpserver.NewServer(cfg, log, rdb, ipStrategy, ticketHandler, sseHandler, eventHandler, pollHandler)
+	srv := httpserver.NewServer(cfg, log, ipStrategy, h)
 	srv.Serve()
 
 	t.Cleanup(func() {

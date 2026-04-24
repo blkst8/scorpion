@@ -1,36 +1,21 @@
 package handlers
 
 import (
-	"log/slog"
 	"net/http"
 
 	"github.com/bytedance/sonic"
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
 
-	"github.com/blkst8/scorpion/internal/config"
 	"github.com/blkst8/scorpion/internal/domain"
 	"github.com/blkst8/scorpion/internal/http/middleware"
 	applog "github.com/blkst8/scorpion/internal/log"
-	redisstore "github.com/blkst8/scorpion/internal/repository"
 	"github.com/blkst8/scorpion/internal/telemetry"
 )
 
-// EventHandler handles POST /v1/events/:client_id.
-type EventHandler struct {
-	events *redisstore.EventStore
-	cfg    config.SSE
-	log    *slog.Logger
-}
-
-// NewEventHandler creates a new EventHandler with all dependencies injected.
-func NewEventHandler(events *redisstore.EventStore, cfg config.SSE, log *slog.Logger) *EventHandler {
-	return &EventHandler{events: events, cfg: cfg, log: log}
-}
-
-// Handle processes POST /v1/events/:client_id.
+// V1InsertEvent processes POST /v1/events/:client_id.
 // Requires TokenMiddleware; the caller's JWT sub must equal :client_id.
-func (h *EventHandler) Handle(ctx echo.Context) error {
+func (h *HTTPHandlers) V1InsertEvent(ctx echo.Context) error {
 	callerID, _ := ctx.Get(middleware.ClientID).(string)
 	clientID := ctx.Param("client_id")
 
@@ -42,8 +27,8 @@ func (h *EventHandler) Handle(ctx echo.Context) error {
 		return ctx.JSON(http.StatusForbidden, errorResponse{Error: "forbidden", Message: "You may only push events to your own queue."})
 	}
 
-	if h.cfg.MaxEventBytes > 0 {
-		ctx.Request().Body = http.MaxBytesReader(ctx.Response().Writer, ctx.Request().Body, int64(h.cfg.MaxEventBytes))
+	if h.Cfg.SSE.MaxEventBytes > 0 {
+		ctx.Request().Body = http.MaxBytesReader(ctx.Response().Writer, ctx.Request().Body, int64(h.Cfg.SSE.MaxEventBytes))
 	}
 
 	var req domain.EventRequest
@@ -69,16 +54,16 @@ func (h *EventHandler) Handle(ctx echo.Context) error {
 
 	raw, err := sonic.Marshal(payload)
 	if err != nil {
-		h.log.Error("failed to marshal event payload", applog.FieldClientID, clientID, applog.FieldError, err)
+		h.Log.Error("failed to marshal event payload", applog.FieldClientID, clientID, applog.FieldError, err)
 		return ctx.JSON(http.StatusInternalServerError, errorResponse{Error: "internal_error", Message: "Failed to encode event."})
 	}
 
-	if err := h.events.Push(spanCtx, clientID, string(raw)); err != nil {
-		h.log.Error("failed to push event", applog.FieldClientID, clientID, applog.FieldError, err)
+	if err := h.Events.Push(spanCtx, clientID, string(raw)); err != nil {
+		h.Log.Error("failed to push event", applog.FieldClientID, clientID, applog.FieldError, err)
 		return ctx.JSON(http.StatusInternalServerError, errorResponse{Error: "internal_error", Message: "Failed to push event."})
 	}
 
-	h.log.Info("event pushed",
+	h.Log.Info("event pushed",
 		applog.FieldClientID, clientID,
 		applog.FieldEventID, payload.ID,
 		applog.FieldEventType, payload.Type,

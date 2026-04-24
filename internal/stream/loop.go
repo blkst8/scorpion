@@ -15,7 +15,7 @@ import (
 	"github.com/blkst8/scorpion/internal/domain"
 	applog "github.com/blkst8/scorpion/internal/log"
 	"github.com/blkst8/scorpion/internal/metrics"
-	redisstore "github.com/blkst8/scorpion/internal/repository"
+	"github.com/blkst8/scorpion/internal/repository"
 	"github.com/blkst8/scorpion/internal/telemetry"
 )
 
@@ -88,8 +88,8 @@ func RunLoop(
 	flusher http.Flusher,
 	clientID, clientIP string,
 	cfg config.SSE,
-	conns *redisstore.ConnectionStore,
-	events *redisstore.EventStore,
+	conns repository.ConnectionStore,
+	events repository.EventStore,
 	log *slog.Logger,
 	m *metrics.Metrics,
 ) {
@@ -138,7 +138,7 @@ func drainAndFlush(
 	flusher http.Flusher,
 	clientID string,
 	cfg config.SSE,
-	events *redisstore.EventStore,
+	events repository.EventStore,
 	cb *circuitBreaker,
 	log *slog.Logger,
 	m *metrics.Metrics,

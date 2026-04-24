@@ -938,7 +938,7 @@ Deployment: Client → Scorpion (direct, no proxy)
 #### Strategy Factory
 
 ```go
-// internal/appmiddleware/ip.go
+// internal/app/ip.go
 package middleware
 
 import (
@@ -1094,7 +1094,7 @@ The forged `6.6.6.6` is pushed further left and ignored. The library always reso
 ### Testing
 
 ```go
-// internal/appmiddleware/ip_test.go
+// internal/app/ip_test.go
 func TestIPExtraction(t *testing.T) {
     strategy, _ := realclientip.NewRightmostTrustedCountStrategy("X-Forwarded-For", 1)
 

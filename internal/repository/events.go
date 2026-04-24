@@ -1,4 +1,4 @@
-package redisstore
+package repository
 
 import (
 	"context"
@@ -8,15 +8,20 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
-// EventStore manages per-client event queues in Redis.
-type EventStore struct {
+type EventStore interface {
+	Push(ctx context.Context, clientID, eventJSON string) error
+	Drain(ctx context.Context, clientID string, batchSize int) (events []string, remaining int64, err error)
+}
+
+// eventStore manages per-client event queues in Redis.
+type eventStore struct {
 	rdb           *redis.Client
 	maxQueueDepth int64
 }
 
 // NewEventStore creates a new EventStore.
-func NewEventStore(rdb *redis.Client, maxQueueDepth int64) *EventStore {
-	return &EventStore{rdb: rdb, maxQueueDepth: maxQueueDepth}
+func NewEventStore(rdb *redis.Client, maxQueueDepth int64) EventStore {
+	return &eventStore{rdb: rdb, maxQueueDepth: maxQueueDepth}
 }
 
 // eventsKey returns the Redis list key for a client's event queue.
@@ -26,7 +31,7 @@ func eventsKey(clientID string) string {
 
 // Push appends an event JSON string to the tail of a client's queue (RPUSH)
 // and atomically caps the list at maxQueueDepth to prevent unbounded growth.
-func (s *EventStore) Push(ctx context.Context, clientID, eventJSON string) error {
+func (s *eventStore) Push(ctx context.Context, clientID, eventJSON string) error {
 	key := eventsKey(clientID)
 	pipe := s.rdb.Pipeline()
 	pipe.RPush(ctx, key, eventJSON)
@@ -38,7 +43,7 @@ func (s *EventStore) Push(ctx context.Context, clientID, eventJSON string) error
 // Drain atomically fetches up to batchSize events from the head, trims the
 // list, and also returns the remaining queue depth (via LLEN in the same
 // pipeline) for metrics.
-func (s *EventStore) Drain(ctx context.Context, clientID string, batchSize int) (events []string, remaining int64, err error) {
+func (s *eventStore) Drain(ctx context.Context, clientID string, batchSize int) (events []string, remaining int64, err error) {
 	key := eventsKey(clientID)
 
 	pipe := s.rdb.Pipeline()

@@ -13,14 +13,13 @@ import (
 	"github.com/spf13/cobra"
 	_ "go.uber.org/automaxprocs"
 
-	"github.com/blkst8/scorpion/internal/appmiddleware"
+	"github.com/blkst8/scorpion/internal/app"
 	"github.com/blkst8/scorpion/internal/config"
 	httpserver "github.com/blkst8/scorpion/internal/http"
 	"github.com/blkst8/scorpion/internal/http/handlers"
 	applog "github.com/blkst8/scorpion/internal/log"
 	"github.com/blkst8/scorpion/internal/metrics"
 	"github.com/blkst8/scorpion/internal/ratelimit"
-	redisstore "github.com/blkst8/scorpion/internal/repository"
 	"github.com/blkst8/scorpion/internal/telemetry"
 )
 
@@ -55,29 +54,35 @@ func runStart(_ *cobra.Command, _ []string) error {
 	shutdownTracing := telemetry.InitTracer(cfg.Observability, log)
 	defer shutdownTracing()
 
-	ipStrategy, err := appmiddleware.NewIPStrategy(cfg.IP)
+	ipStrategy, err := app.NewIPStrategy(cfg.IP)
 	if err != nil {
 		return fmt.Errorf("failed to initialize IP strategy: %w", err)
 	}
 
-	rdb, err := redisstore.NewClient(cfg.Redis, m)
+	rdb, err := app.NewClient(cfg.Redis, m)
 	if err != nil {
 		return fmt.Errorf("failed to connect to repository: %w", err)
 	}
 	defer func() { _ = rdb.Close() }()
 
 	instanceID := uuid.NewString()
-	ticketStore := redisstore.NewTicketStore(rdb)
-	connStore := redisstore.NewConnectionStore(rdb, instanceID, log)
-	eventStore := redisstore.NewEventStore(rdb, cfg.SSE.MaxQueueDepth)
+	repo := app.WithRepository(rdb, log, instanceID, cfg.SSE.MaxQueueDepth)
+
 	limiter := ratelimit.NewLimiter(rdb, cfg.RateLimit)
 
-	ticketHandler := handlers.NewTicketHandler(*cfg, ticketStore, limiter, ipStrategy, log, m)
-	sseHandler := handlers.NewSSEHandler(*cfg, ticketStore, connStore, eventStore, ipStrategy, log, m)
-	eventHandler := handlers.NewEventHandler(eventStore, cfg.SSE, log)
-	pollHandler := handlers.NewPollHandler(eventStore, cfg.SSE, log)
+	h := handlers.HTTPHandlers{
+		RDB:        rdb,
+		Events:     repo.EventStore,
+		Tickets:    repo.TicketStore,
+		Conns:      repo.ConnectionStore,
+		Limiter:    limiter,
+		IPStrategy: ipStrategy,
+		Cfg:        cfg,
+		Log:        log,
+		Metrics:    m,
+	}
 
-	srv := httpserver.NewServer(*cfg, log, rdb, ipStrategy, ticketHandler, sseHandler, eventHandler, pollHandler)
+	srv := httpserver.NewServer(*cfg, log, ipStrategy, h)
 	srv.Serve()
 
 	stop := make(chan os.Signal, 1)
@@ -94,7 +99,7 @@ func runStart(_ *cobra.Command, _ []string) error {
 		log.Error("forced shutdown", applog.FieldError, err)
 	}
 
-	connStore.CleanupInstance(context.Background())
+	repo.ConnectionStore.CleanupInstance(context.Background())
 
 	log.Info("scorpion stopped", applog.FieldDuration, time.Since(shutdownStart).String())
 	return nil

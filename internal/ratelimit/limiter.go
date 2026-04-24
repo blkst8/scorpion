@@ -18,15 +18,19 @@ var atomicRateLimitScript string
 
 var atomicRateLimitLua = redis.NewScript(atomicRateLimitScript)
 
-// Limiter is a Redis-backed per-IP rate limiter using an atomic Lua script.
-type Limiter struct {
+type Limiter interface {
+	Allow(ctx context.Context, ip string) (Result, error)
+}
+
+// limiter is a Redis-backed per-IP rate limiter using an atomic Lua script.
+type limiter struct {
 	rdb *redis.Client
 	cfg config.RateLimit
 }
 
 // NewLimiter creates a new Limiter.
-func NewLimiter(rdb *redis.Client, cfg config.RateLimit) *Limiter {
-	return &Limiter{rdb: rdb, cfg: cfg}
+func NewLimiter(rdb *redis.Client, cfg config.RateLimit) Limiter {
+	return &limiter{rdb: rdb, cfg: cfg}
 }
 
 // Result holds the outcome of a rate limit check.
@@ -42,7 +46,7 @@ const windowSeconds = 60
 
 // Allow checks whether the given IP is within the rate limit.
 // Uses an atomic Lua script: INCR + EXPIRE-on-first-hit in one round-trip.
-func (l *Limiter) Allow(ctx context.Context, ip string) (Result, error) {
+func (l *limiter) Allow(ctx context.Context, ip string) (Result, error) {
 	key := fmt.Sprintf("scorpion:ratelimit:%s", ip)
 	limit := l.cfg.TicketRPM + l.cfg.TicketBurst
 

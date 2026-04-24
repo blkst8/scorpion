@@ -3,19 +3,12 @@ package handlers
 
 import (
 	"fmt"
-	"log/slog"
 	"net/http"
 	"time"
 
+	"github.com/blkst8/scorpion/internal/auth"
 	"github.com/blkst8/scorpion/internal/http/middleware"
 	"github.com/labstack/echo/v4"
-	"github.com/realclientip/realclientip-go"
-
-	"github.com/blkst8/scorpion/internal/auth"
-	"github.com/blkst8/scorpion/internal/config"
-	"github.com/blkst8/scorpion/internal/metrics"
-	"github.com/blkst8/scorpion/internal/ratelimit"
-	redisstore "github.com/blkst8/scorpion/internal/repository"
 )
 
 type ticketResponse struct {
@@ -28,40 +21,11 @@ type errorResponse struct {
 	Message string `json:"message"`
 }
 
-// TicketHandler handles POST /v1/auth/ticket.
-type TicketHandler struct {
-	cfg        config.Config
-	tickets    *redisstore.TicketStore
-	limiter    *ratelimit.Limiter
-	ipStrategy realclientip.Strategy
-	log        *slog.Logger
-	metrics    *metrics.Metrics
-}
-
-// NewTicketHandler creates a new TicketHandler with all dependencies injected.
-func NewTicketHandler(
-	cfg config.Config,
-	tickets *redisstore.TicketStore,
-	limiter *ratelimit.Limiter,
-	ipStrategy realclientip.Strategy,
-	log *slog.Logger,
-	m *metrics.Metrics,
-) *TicketHandler {
-	return &TicketHandler{
-		cfg:        cfg,
-		tickets:    tickets,
-		limiter:    limiter,
-		ipStrategy: ipStrategy,
-		log:        log,
-		metrics:    m,
-	}
-}
-
 // Handle processes POST /v1/auth/ticket.
-func (h *TicketHandler) Handle(ctx echo.Context) error {
+func (h *HTTPHandlers) V1AuthTicket(ctx echo.Context) error {
 	clientIP := ctx.Get(middleware.ClientIP).(string)
 	if clientIP == "" {
-		h.log.Error("failed to extract client IP")
+		h.Log.Error("failed to extract client IP")
 
 		return ctx.JSON(
 			http.StatusInternalServerError,
@@ -72,9 +36,9 @@ func (h *TicketHandler) Handle(ctx echo.Context) error {
 		)
 	}
 
-	rl, err := h.limiter.Allow(ctx.Request().Context(), clientIP)
+	rl, err := h.Limiter.Allow(ctx.Request().Context(), clientIP)
 	if err != nil {
-		h.log.Error("rate limiter error", "ip", clientIP, "error", err)
+		h.Log.Error("rate limiter error", "ip", clientIP, "error", err)
 	}
 
 	ctx.Response().Header().Set("X-RateLimit-Limit", fmt.Sprintf("%d", rl.Limit))
@@ -82,10 +46,10 @@ func (h *TicketHandler) Handle(ctx echo.Context) error {
 	ctx.Response().Header().Set("X-RateLimit-Reset", fmt.Sprintf("%d", rl.ResetAt.Unix()))
 
 	if !rl.Allowed {
-		h.metrics.RateLimitExceededTotal.Inc()
-		h.metrics.TicketsRejectedTotal.WithLabelValues("rate_limited").Inc()
+		h.Metrics.RateLimitExceededTotal.Inc()
+		h.Metrics.TicketsRejectedTotal.WithLabelValues("rate_limited").Inc()
 
-		h.log.Warn(
+		h.Log.Warn(
 			"rate limit exceeded",
 			"ip", clientIP,
 			"count", rl.Count,
@@ -104,9 +68,9 @@ func (h *TicketHandler) Handle(ctx echo.Context) error {
 
 	clientID := ctx.Get(middleware.ClientID).(string)
 
-	ticketStr, jti, err := auth.GenerateTicket(h.cfg.Auth, clientID, clientIP)
+	ticketStr, jti, err := auth.GenerateTicket(h.Cfg.Auth, clientID, clientIP)
 	if err != nil {
-		h.log.Error(
+		h.Log.Error(
 			"failed to generate ticket",
 			"client_id", clientID,
 			"ip", clientIP,
@@ -122,9 +86,9 @@ func (h *TicketHandler) Handle(ctx echo.Context) error {
 		)
 	}
 
-	err = h.tickets.Store(ctx.Request().Context(), clientID, clientIP, jti, h.cfg.Auth.TicketTTL)
+	err = h.Tickets.Store(ctx.Request().Context(), clientID, clientIP, jti, h.Cfg.Auth.TicketTTL)
 	if err != nil {
-		h.log.Error(
+		h.Log.Error(
 			"failed to store ticket",
 			"client_id", clientID,
 			"ip", clientIP,
@@ -140,17 +104,17 @@ func (h *TicketHandler) Handle(ctx echo.Context) error {
 		)
 	}
 
-	h.metrics.TicketsIssuedTotal.Inc()
+	h.Metrics.TicketsIssuedTotal.Inc()
 
-	h.log.Info(
+	h.Log.Info(
 		"ticket issued",
 		"client_id", clientID,
 		"ip", clientIP,
-		"expires_at", time.Now().Add(h.cfg.Auth.TicketTTL),
+		"expires_at", time.Now().Add(h.Cfg.Auth.TicketTTL),
 	)
 
 	return ctx.JSON(http.StatusOK, ticketResponse{
 		Ticket:    ticketStr,
-		ExpiresIn: int(h.cfg.Auth.TicketTTL.Seconds()),
+		ExpiresIn: int(h.Cfg.Auth.TicketTTL.Seconds()),
 	})
 }

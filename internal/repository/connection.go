@@ -1,4 +1,4 @@
-package redisstore
+package repository
 
 import (
 	"context"
@@ -16,16 +16,24 @@ var deleteIfOwnerScript string
 
 var deleteIfOwnerLua = redis.NewScript(deleteIfOwnerScript)
 
-// ConnectionStore manages active SSE connection tracking in Redis.
-type ConnectionStore struct {
+type ConnectionStore interface {
+	Register(ctx context.Context, clientID, ip string, ttl time.Duration) (bool, error)
+	Refresh(ctx context.Context, clientID, ip string, ttl time.Duration) error
+	Delete(ctx context.Context, clientID, ip string) error
+	DeleteWithValue(ctx context.Context, clientID, ip string) error
+	CleanupInstance(ctx context.Context)
+}
+
+// connectionStore manages active SSE connection tracking in Redis.
+type connectionStore struct {
 	rdb        *redis.Client
 	instanceID string
 	log        *slog.Logger
 }
 
 // NewConnectionStore creates a new ConnectionStore.
-func NewConnectionStore(rdb *redis.Client, instanceID string, log *slog.Logger) *ConnectionStore {
-	return &ConnectionStore{rdb: rdb, instanceID: instanceID, log: log}
+func NewConnectionStore(rdb *redis.Client, instanceID string, log *slog.Logger) ConnectionStore {
+	return &connectionStore{rdb: rdb, instanceID: instanceID, log: log}
 }
 
 // connKey returns the Redis key for a connection.
@@ -35,7 +43,7 @@ func connKey(clientID, ip string) string {
 
 // Register atomically registers a new connection using SetNX.
 // Returns true if registration succeeded (no existing connection).
-func (s *ConnectionStore) Register(ctx context.Context, clientID, ip string, ttl time.Duration) (bool, error) {
+func (s *connectionStore) Register(ctx context.Context, clientID, ip string, ttl time.Duration) (bool, error) {
 	result, err := s.rdb.SetArgs(ctx, connKey(clientID, ip), s.instanceID, redis.SetArgs{
 		Mode: "NX",
 		TTL:  ttl,
@@ -47,18 +55,18 @@ func (s *ConnectionStore) Register(ctx context.Context, clientID, ip string, ttl
 }
 
 // Refresh extends the TTL on an existing connection key.
-func (s *ConnectionStore) Refresh(ctx context.Context, clientID, ip string, ttl time.Duration) error {
+func (s *connectionStore) Refresh(ctx context.Context, clientID, ip string, ttl time.Duration) error {
 	return s.rdb.Expire(ctx, connKey(clientID, ip), ttl).Err()
 }
 
 // Delete removes the connection key on disconnect.
-func (s *ConnectionStore) Delete(ctx context.Context, clientID, ip string) error {
+func (s *connectionStore) Delete(ctx context.Context, clientID, ip string) error {
 	return s.rdb.Del(ctx, connKey(clientID, ip)).Err()
 }
 
 // DeleteWithValue atomically removes the connection key only if its stored
 // value matches this instance ID, preventing cross-instance deletions.
-func (s *ConnectionStore) DeleteWithValue(ctx context.Context, clientID, ip string) error {
+func (s *connectionStore) DeleteWithValue(ctx context.Context, clientID, ip string) error {
 	key := connKey(clientID, ip)
 	_, err := deleteIfOwnerLua.Run(ctx, s.rdb, []string{key}, s.instanceID).Int()
 	if err != nil && !errors.Is(err, redis.Nil) {
@@ -69,7 +77,7 @@ func (s *ConnectionStore) DeleteWithValue(ctx context.Context, clientID, ip stri
 
 // CleanupInstance scans and removes all connection keys belonging to this instance.
 // Used during forced shutdown to avoid ghost connections.
-func (s *ConnectionStore) CleanupInstance(ctx context.Context) {
+func (s *connectionStore) CleanupInstance(ctx context.Context) {
 	var cursor uint64
 	for {
 		keys, nextCursor, err := s.rdb.Scan(ctx, cursor, "scorpion:conn:*", 100).Result()

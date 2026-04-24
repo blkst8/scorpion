@@ -15,7 +15,6 @@ import (
 	echomiddleware "github.com/labstack/echo/v4/middleware"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/realclientip/realclientip-go"
-	"github.com/redis/go-redis/v9"
 	"golang.org/x/net/http2"
 
 	"github.com/blkst8/scorpion/internal/config"
@@ -35,12 +34,8 @@ type Server struct {
 func NewServer(
 	cfg config.Config,
 	log *slog.Logger,
-	rdb *redis.Client,
 	ipStrategy realclientip.Strategy,
-	ticketHandler *handlers.TicketHandler, // restruct these handlers
-	sseHandler *handlers.SSEHandler,
-	eventHandler *handlers.EventHandler,
-	pollHandler *handlers.PollHandler,
+	registeredHandlers handlers.HTTPHandlers,
 ) *Server {
 	e := echo.New()
 	e.HideBanner = true
@@ -49,20 +44,20 @@ func NewServer(
 	e.Use(echomiddleware.Recover())
 	e.Use(echomiddleware.RequestID())
 
-	e.GET("/healthz", handlers.HealthHandler(rdb))
+	e.GET("/healthz", registeredHandlers.Healthz)
 
 	v1 := e.Group("/v1")
 	// Ticket endpoint is intentionally unauthenticated — clients exchange a
 	// bearer token for a short-lived ticket here.
-	v1.POST("/auth/ticket", ticketHandler.Handle,
+	v1.POST("/auth/ticket", registeredHandlers.V1AuthTicket,
 		middleware.TokenMiddleware(cfg.Auth, ipStrategy, log),
 	)
 
 	// Authenticated routes.
 	authV1 := v1.Group("", middleware.TokenMiddleware(cfg.Auth, ipStrategy, log))
-	authV1.POST("/events/:client_id", eventHandler.Handle)
-	authV1.GET("/events/:client_id", pollHandler.Handle)
-	authV1.GET("/stream/events", sseHandler.Handle)
+	authV1.POST("/events/:client_id", registeredHandlers.V1InsertEvent)
+	authV1.GET("/events/:client_id", registeredHandlers.V1Poll)
+	authV1.GET("/stream/events", registeredHandlers.V1SSEStreamEvents)
 
 	tlsCfg := &tls.Config{MinVersion: tls.VersionTLS12}
 

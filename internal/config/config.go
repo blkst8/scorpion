@@ -66,8 +66,8 @@ type Redis struct {
 	Password     string `yaml:"password"`
 	DB           int    `yaml:"db"`
 	MaxRetries   int    `yaml:"max_retries"`
-	PoolSize     int    `yaml:"pool_size"`      // 0 = go-redis default (10 × GOMAXPROCS)
-	MinIdleConns int    `yaml:"min_idle_conns"` // 0 = go-redis default
+	PoolSize     int    `yaml:"pool_size"`      // 0 = go-app default (10 × GOMAXPROCS)
+	MinIdleConns int    `yaml:"min_idle_conns"` // 0 = go-app default
 }
 
 // Observability contains metrics, logging, and tracing configuration.

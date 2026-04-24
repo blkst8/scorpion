@@ -35,7 +35,7 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/prometheus/client_golang/prometheus"
 
-	appmiddleware "github.com/blkst8/scorpion/internal/appmiddleware"
+	appmiddleware "github.com/blkst8/scorpion/internal/app"
 	"github.com/blkst8/scorpion/internal/config"
 	httpserver "github.com/blkst8/scorpion/internal/http"
 	"github.com/blkst8/scorpion/internal/http/handlers"
@@ -233,7 +233,7 @@ func startServer(t *testing.T) *testServer {
 		t.Fatalf("ip strategy: %v", err)
 	}
 
-	rdb, err := redisstore.NewClient(cfg.Redis, m)
+	rdb, err := appmiddleware.NewClient(cfg.Redis, m)
 	if err != nil {
 		t.Skipf("skipping e2e – Redis unavailable: %v", err)
 	}

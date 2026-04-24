@@ -1,5 +1,4 @@
-// Package repository provides Redis client initialization for Scorpion.
-package redisstore
+package app
 
 import (
 	"context"

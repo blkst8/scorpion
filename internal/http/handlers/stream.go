@@ -2,55 +2,17 @@ package handlers
 
 import (
 	"context"
-	"log/slog"
 	"net/http"
 
-	"github.com/blkst8/scorpion/internal/http/middleware"
-	"github.com/labstack/echo/v4"
-	"github.com/realclientip/realclientip-go"
-
 	"github.com/blkst8/scorpion/internal/auth"
-	"github.com/blkst8/scorpion/internal/config"
+	"github.com/blkst8/scorpion/internal/http/middleware"
 	applog "github.com/blkst8/scorpion/internal/log"
-	"github.com/blkst8/scorpion/internal/metrics"
-	redisstore "github.com/blkst8/scorpion/internal/repository"
 	"github.com/blkst8/scorpion/internal/stream"
+	"github.com/labstack/echo/v4"
 )
 
-// SSEHandler handles GET /v1/stream/events.
-type SSEHandler struct {
-	cfg        config.Config
-	tickets    *redisstore.TicketStore
-	conns      *redisstore.ConnectionStore
-	events     *redisstore.EventStore
-	ipStrategy realclientip.Strategy
-	log        *slog.Logger
-	metrics    *metrics.Metrics
-}
-
-// NewSSEHandler creates a new SSEHandler with all dependencies injected.
-func NewSSEHandler(
-	cfg config.Config,
-	tickets *redisstore.TicketStore,
-	conns *redisstore.ConnectionStore,
-	events *redisstore.EventStore,
-	ipStrategy realclientip.Strategy,
-	log *slog.Logger,
-	m *metrics.Metrics,
-) *SSEHandler {
-	return &SSEHandler{
-		cfg:        cfg,
-		tickets:    tickets,
-		conns:      conns,
-		events:     events,
-		ipStrategy: ipStrategy,
-		log:        log,
-		metrics:    m,
-	}
-}
-
-// Handle processes GET /v1/stream/events.
-func (h *SSEHandler) Handle(ctx echo.Context) error {
+// V1SSEStreamEvents processes GET /v1/stream/events.
+func (h *HTTPHandlers) V1SSEStreamEvents(ctx echo.Context) error {
 	r := ctx.Request()
 	w := ctx.Response().Writer
 
@@ -76,9 +38,9 @@ func (h *SSEHandler) Handle(ctx echo.Context) error {
 		)
 	}
 
-	claims, err := auth.ValidateTicket(h.cfg.Auth, ticketStr)
+	claims, err := auth.ValidateTicket(h.Cfg.Auth, ticketStr)
 	if err != nil {
-		h.metrics.ConnectionsTotal.WithLabelValues("rejected").Inc()
+		h.Metrics.ConnectionsTotal.WithLabelValues("rejected").Inc()
 
 		return ctx.JSON(
 			http.StatusForbidden,
@@ -105,10 +67,9 @@ func (h *SSEHandler) Handle(ctx echo.Context) error {
 	}
 
 	if requestIP != ticketIP {
-		h.metrics.AuthIPMismatchTotal.Inc()
-		h.metrics.ConnectionsTotal.WithLabelValues("rejected").Inc()
-
-		h.log.Warn("IP mismatch",
+		h.Metrics.AuthIPMismatchTotal.Inc()
+		h.Metrics.ConnectionsTotal.WithLabelValues("rejected").Inc()
+		h.Log.Warn("IP mismatch",
 			applog.FieldClientID, clientID,
 			applog.FieldTicketIP, ticketIP,
 			applog.FieldRequestIP, requestIP,
@@ -120,9 +81,9 @@ func (h *SSEHandler) Handle(ctx echo.Context) error {
 		})
 	}
 
-	ok, err = h.tickets.ValidateAndConsume(r.Context(), clientID, requestIP, jti)
+	ok, err = h.Tickets.ValidateAndConsume(r.Context(), clientID, requestIP, jti)
 	if err != nil {
-		h.log.Error("ticket validate error",
+		h.Log.Error("ticket validate error",
 			applog.FieldClientID, clientID,
 			applog.FieldError, err,
 		)
@@ -133,9 +94,9 @@ func (h *SSEHandler) Handle(ctx echo.Context) error {
 		})
 	}
 	if !ok {
-		h.metrics.ConnectionsTotal.WithLabelValues("rejected").Inc()
+		h.Metrics.ConnectionsTotal.WithLabelValues("rejected").Inc()
 
-		h.log.Warn("ticket not found or jti mismatch",
+		h.Log.Warn("ticket not found or jti mismatch",
 			applog.FieldClientID, clientID,
 			applog.FieldIP, requestIP,
 		)
@@ -146,9 +107,9 @@ func (h *SSEHandler) Handle(ctx echo.Context) error {
 		})
 	}
 
-	registered, err := h.conns.Register(r.Context(), clientID, requestIP, h.cfg.SSE.ConnTTL)
+	registered, err := h.Conns.Register(r.Context(), clientID, requestIP, h.Cfg.SSE.ConnTTL)
 	if err != nil {
-		h.log.Error("connection register error",
+		h.Log.Error("connection register error",
 			applog.FieldClientID, clientID,
 			applog.FieldError, err,
 		)
@@ -159,10 +120,10 @@ func (h *SSEHandler) Handle(ctx echo.Context) error {
 		})
 	}
 	if !registered {
-		h.metrics.DuplicateConnectionsTotal.Inc()
-		h.metrics.ConnectionsTotal.WithLabelValues("rejected").Inc()
+		h.Metrics.DuplicateConnectionsTotal.Inc()
+		h.Metrics.ConnectionsTotal.WithLabelValues("rejected").Inc()
 
-		h.log.Warn("duplicate connection",
+		h.Log.Warn("duplicate connection",
 			applog.FieldClientID, clientID,
 			applog.FieldIP, requestIP,
 		)
@@ -173,24 +134,24 @@ func (h *SSEHandler) Handle(ctx echo.Context) error {
 		})
 	}
 
-	h.metrics.ConnectionsTotal.WithLabelValues("ok").Inc()
-	h.metrics.ActiveConnections.Inc()
-	defer h.metrics.ActiveConnections.Dec()
+	h.Metrics.ConnectionsTotal.WithLabelValues("ok").Inc()
+	h.Metrics.ActiveConnections.Inc()
+	defer h.Metrics.ActiveConnections.Dec()
 
-	h.log.Info("stream started",
+	h.Log.Info("stream started",
 		applog.FieldClientID, clientID,
 		applog.FieldIP, requestIP,
 		applog.FieldJTI, jti,
 	)
 
 	defer func() {
-		if err := h.conns.Delete(context.Background(), clientID, requestIP); err != nil {
-			h.log.Warn("failed to delete connection on close",
+		if err := h.Conns.Delete(context.Background(), clientID, requestIP); err != nil {
+			h.Log.Warn("failed to delete connection on close",
 				applog.FieldClientID, clientID,
 				applog.FieldError, err,
 			)
 		}
-		h.log.Info("stream closed",
+		h.Log.Info("stream closed",
 			applog.FieldClientID, clientID,
 			applog.FieldIP, requestIP,
 		)
@@ -202,7 +163,7 @@ func (h *SSEHandler) Handle(ctx echo.Context) error {
 	ctx.Response().Header().Set("X-Accel-Buffering", "no")
 	ctx.Response().WriteHeader(http.StatusOK)
 
-	stream.RunLoop(r.Context(), w, flusher, clientID, requestIP, h.cfg.SSE, h.conns, h.events, h.log, h.metrics)
+	stream.RunLoop(r.Context(), w, flusher, clientID, requestIP, h.Cfg.SSE, h.Conns, h.Events, h.Log, h.Metrics)
 
 	return nil
 }
