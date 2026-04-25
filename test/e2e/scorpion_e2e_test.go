@@ -252,12 +252,19 @@ func startServer(t *testing.T) *testServer {
 	eventStore := redisstore.NewEventStore(rdb, cfg.SSE.MaxQueueDepth)
 	limiter := ratelimit.NewLimiter(rdb, cfg.RateLimit)
 
-	ticketHandler := handlers.NewTicketHandler(cfg, ticketStore, limiter, ipStrategy, log, m)
-	sseHandler := handlers.NewSSEHandler(cfg, ticketStore, connStore, eventStore, ipStrategy, log, m)
-	eventHandler := handlers.NewEventHandler(eventStore, cfg.SSE, log)
-	pollHandler := handlers.NewPollHandler(eventStore, cfg.SSE, log)
+	h := handlers.HTTPHandlers{
+		RDB:        rdb,
+		Events:     eventStore,
+		Tickets:    ticketStore,
+		Conns:      connStore,
+		Limiter:    limiter,
+		IPStrategy: ipStrategy,
+		Cfg:        &cfg,
+		Log:        log,
+		Metrics:    m,
+	}
 
-	srv := httpserver.NewServer(cfg, log, rdb, ipStrategy, ticketHandler, sseHandler, eventHandler, pollHandler)
+	srv := httpserver.NewServer(cfg, log, ipStrategy, h)
 	srv.Serve()
 
 	t.Cleanup(func() {

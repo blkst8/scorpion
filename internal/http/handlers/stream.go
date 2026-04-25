@@ -162,6 +162,11 @@ func (h *HTTPHandlers) V1SSEStreamEvents(ctx echo.Context) error {
 	ctx.Response().Header().Set("Connection", "keep-alive")
 	ctx.Response().Header().Set("X-Accel-Buffering", "no")
 	ctx.Response().WriteHeader(http.StatusOK)
+	// Flush headers immediately so the client receives the 200 OK and the SSE
+	// handshake completes before the first poll tick.  Without this, clients
+	// using ResponseHeaderTimeout will time out waiting for headers that are
+	// buffered inside Go's http.ResponseWriter until the first Write/Flush.
+	flusher.Flush()
 
 	stream.RunLoop(r.Context(), w, flusher, clientID, requestIP, h.Cfg.SSE, h.Conns, h.Events, h.Log, h.Metrics)
 

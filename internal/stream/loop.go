@@ -96,6 +96,10 @@ func RunLoop(
 	rc := http.NewResponseController(w.(http.ResponseWriter))
 	cb := newCircuitBreaker(5, 10*time.Second)
 
+	// Drain any queued events immediately on connect so the client doesn't
+	// have to wait a full poll interval for backlogged events.
+	drainAndFlush(ctx, w, rc, flusher, clientID, cfg, events, cb, log, m)
+
 	pollTicker := time.NewTicker(cfg.PollInterval)
 	defer pollTicker.Stop()
 	heartbeatTicker := time.NewTicker(cfg.HeartbeatInterval)
