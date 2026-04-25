@@ -308,6 +308,103 @@ Goroutine Peak vs Clients — High-Concurrency
 
 ---
 
+### ⚔️ SSE vs Polling — Head-to-Head at Scale (1 000 – 5 000 Clients)
+
+> Real-world comparison: SSE with **1 s** heartbeat interval vs long-polling with **10 s** interval.  
+> 100 % delivery in every scenario. Zero missed events.
+
+#### 🚀 Throughput (Events / Second)
+
+| Clients | Events | SSE EPS | Poll EPS | SSE speedup |
+|--------:|-------:|--------:|---------:|:-----------:|
+| 1 000 | 5 | **2 809** | 243 | **11.6 ×** |
+| 2 000 | 10 | **6 909** | 481 | **14.4 ×** |
+| 5 000 | 20 | **10 086** | 929 | **10.9 ×** |
+
+```
+Throughput (eps) — SSE vs Poll
+ eps
+10086│  ███
+ 9000│  ███
+ 7000│  ███
+ 6909│  ███
+ 5000│  ███
+ 3000│  ███  ███
+ 2809│  ███  ███
+ 1000│  ███  ███  ███
+  929│  ███  ███  ███
+  481│  ███  ███  ███  ███
+  243│  ███  ███  ███  ███
+    0│─────────────────────────────────────→ clients
+        1k   1k   2k   2k   5k   5k
+       SSE  Poll SSE  Poll SSE  Poll
+```
+
+#### ⏱️ Latency Comparison
+
+| Clients | SSE p50 | Poll p50 | SSE p95 | Poll p95 | SSE p99 | Poll p99 | SSE max | Poll max |
+|--------:|--------:|---------:|--------:|---------:|--------:|---------:|--------:|---------:|
+| 1 000 | 455 ms | 10 504 ms | 663 ms | 20 388 ms | 800 ms | 20 502 ms | 844 ms | 20 557 ms |
+| 2 000 | 458 ms | 21 494 ms | 756 ms | 40 406 ms | 816 ms | 40 551 ms | 1 059 ms | 40 758 ms |
+| 5 000 | 651 ms | 55 317 ms | 1 108 ms | 100 614 ms | 1 256 ms | 101 265 ms | 1 579 ms | 102 436 ms |
+
+> SSE delivers events in **< 1 s** across all scenarios.  
+> Poll p50 grows linearly with the poll interval — reaching **55 s** at 5 000 clients.
+
+#### 🧠 Resource Usage
+
+| Clients | SSE RSS | Poll RSS | SSE Goroutines | Poll Goroutines | SSE CPU user | Poll CPU user |
+|--------:|--------:|---------:|---------------:|----------------:|-------------:|--------------:|
+| 1 000 | 467 MB | 263 MB | 11 534 | 5 624 | 10.5 s | 9.1 s |
+| 2 000 | 721 MB | 577 MB | 24 535 | 12 575 | 31.4 s | 27.6 s |
+| 5 000 | 1 466 MB | 1 146 MB | 60 540 | 30 518 | 137.6 s | 134.5 s |
+
+> SSE uses ~28 % more RAM due to persistent open connections, but CPU cost is virtually identical.
+
+#### 🗄️ Redis Metrics
+
+| Clients | SSE Cmds | Poll Cmds | SSE Peak Ops/s | Poll Peak Ops/s | SSE Peak Conns | Poll Peak Conns |
+|--------:|---------:|----------:|---------------:|----------------:|---------------:|----------------:|
+| 1 000 | 35 013 | 13 795 | 19 170 | 6 609 | 503 | 638 |
+| 2 000 | 101 280 | 46 307 | 42 622 | 24 930 | 856 | 884 |
+| 5 000 | 496 557 | 215 769 | 66 685 | 27 474 | 933 | 987 |
+
+> SSE issues more Redis commands (fan-out subscriptions) but achieves far higher ops/s throughput.
+
+```
+Redis Peak Ops/s — SSE vs Poll
+ ops/s
+66685│  ███
+55000│  ███
+42622│  ███  ███
+30000│  ███  ███  ███
+27474│  ███  ███  ███
+24930│  ███  ███  ███  ███
+19170│  ███  ███  ███  ███
+ 6609│  ███  ███  ███  ███  ███  ███
+     0│────────────────────────────────→ clients
+         1k   1k   2k   2k   5k   5k
+        SSE  Poll SSE  Poll SSE  Poll
+```
+
+#### 🏆 Summary
+
+| Metric | Winner | Notes |
+|--------|--------|-------|
+| **Throughput** | ✅ SSE (up to 14×) | Persistent push vs periodic pull |
+| **Latency** | ✅ SSE (~500 ms vs ~55 s) | Near real-time delivery |
+| **CPU** | 🤝 Tie | Nearly identical at all scales |
+| **Memory** | ✅ Poll (~28 % less) | No persistent connections to hold |
+| **Redis load** | ✅ Poll (fewer commands) | SSE fans out per-subscriber |
+| **Delivery guarantee** | 🤝 Tie | 100 % in both modes |
+
+> **Use SSE** when you need real-time delivery (< 1 s).  
+> **Use Polling** when clients can tolerate delay and you want lower RAM/Redis pressure.
+
+> **Full interactive HTML report:** [`test/e2e/compare_report.html`](test/e2e/compare_report.html)
+
+---
+
 ### 📈 SSE vs Poll — Cross-Mode Comparison (10 connections)
 
 | Events/Client | SSE Throughput | Poll Throughput | SSE lat p50 | Poll lat p50 | SSE RSS | Poll RSS |
