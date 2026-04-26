@@ -47,3 +47,14 @@ observability:
   tracing_enabled: false
   # Override via SCORPION_OTLP_ENDPOINT env var.
   otlp_endpoint: ""   # e.g. "otel-collector:4317"
+
+nats:
+  enabled: false
+  url: "nats://localhost:4222"
+  stream_name: "ACK_STREAM"
+  subject_prefix: "sse.acks"
+  publish_timeout_ms: 3000
+  max_retries: 3
+  credentials_file: ""
+  duplicate_window: 2m
+

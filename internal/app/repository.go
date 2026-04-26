@@ -11,6 +11,7 @@ type Repository struct {
 	ConnectionStore repository.ConnectionStore
 	EventStore      repository.EventStore
 	TicketStore     repository.TicketStore
+	InFlightStore   repository.InFlightStore
 }
 
 func WithRepository(
@@ -23,6 +24,7 @@ func WithRepository(
 	r.ConnectionStore = repository.NewConnectionStore(rdb, instanceID, log)
 	r.EventStore = repository.NewEventStore(rdb, maxQueueDepth)
 	r.TicketStore = repository.NewTicketStore(rdb)
+	r.InFlightStore = repository.NewInFlightStore(rdb)
 
 	return r
 }

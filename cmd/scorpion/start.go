@@ -13,6 +13,7 @@ import (
 	"github.com/spf13/cobra"
 	_ "go.uber.org/automaxprocs"
 
+	"github.com/blkst8/scorpion/internal/ack"
 	"github.com/blkst8/scorpion/internal/app"
 	"github.com/blkst8/scorpion/internal/config"
 	httpserver "github.com/blkst8/scorpion/internal/http"
@@ -70,16 +71,25 @@ func runStart(_ *cobra.Command, _ []string) error {
 
 	limiter := ratelimit.NewLimiter(rdb, cfg.RateLimit)
 
+	// ACK publisher: use log-based stub when NATS is not configured.
+	var ackPublisher ack.Publisher
+	ackPublisher = ack.NewLogPublisher(log)
+	if cfg.NATS.Enabled {
+		log.Warn("NATS enabled in config but real NATS publisher not yet linked — using log publisher")
+	}
+
 	h := handlers.HTTPHandlers{
-		RDB:        rdb,
-		Events:     repo.EventStore,
-		Tickets:    repo.TicketStore,
-		Conns:      repo.ConnectionStore,
-		Limiter:    limiter,
-		IPStrategy: ipStrategy,
-		Cfg:        cfg,
-		Log:        log,
-		Metrics:    m,
+		RDB:          rdb,
+		Events:       repo.EventStore,
+		Tickets:      repo.TicketStore,
+		Conns:        repo.ConnectionStore,
+		InFlight:     repo.InFlightStore,
+		AckPublisher: ackPublisher,
+		Limiter:      limiter,
+		IPStrategy:   ipStrategy,
+		Cfg:          cfg,
+		Log:          log,
+		Metrics:      m,
 	}
 
 	srv := httpserver.NewServer(*cfg, log, ipStrategy, h)

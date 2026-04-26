@@ -8,6 +8,7 @@ import (
 
 // Metrics holds all registered Prometheus metrics for Scorpion.
 type Metrics struct {
+	// SSE Publisher metrics.
 	ActiveConnections         prometheus.Gauge
 	ConnectionsTotal          *prometheus.CounterVec
 	EventsDeliveredTotal      *prometheus.CounterVec
@@ -21,6 +22,21 @@ type Metrics struct {
 	HeartbeatsSentTotal       prometheus.Counter
 	RedisLatencySeconds       *prometheus.HistogramVec
 	RateLimitExceededTotal    prometheus.Counter
+	UnackedEventsTotal        *prometheus.GaugeVec
+
+	// ACK Handler metrics.
+	AckRequestsTotal         *prometheus.CounterVec
+	AckProcessingDuration    *prometheus.HistogramVec
+	AckValidationErrorsTotal *prometheus.CounterVec
+	AckDuplicateTotal        *prometheus.CounterVec
+	AckToEventLatency        *prometheus.HistogramVec
+	AckUnknownEventTotal     *prometheus.CounterVec
+
+	// NATS publisher metrics.
+	NATSPublishTotal        *prometheus.CounterVec
+	NATSPublishDuration     *prometheus.HistogramVec
+	NATSPublishRetriesTotal *prometheus.CounterVec
+	NATSConnectionStatus    *prometheus.GaugeVec
 }
 
 // NewMetrics registers all Scorpion Prometheus metrics against reg.
@@ -83,5 +99,56 @@ func NewMetrics(reg prometheus.Registerer) *Metrics {
 			Name: "scorpion_ratelimit_exceeded_total",
 			Help: "Rate limit hits on ticket endpoint.",
 		}),
+		UnackedEventsTotal: f.NewGaugeVec(prometheus.GaugeOpts{
+			Name: "sse_unacked_events_total",
+			Help: "Count of events delivered but not yet acknowledged.",
+		}, []string{"stream_id", "client_id"}),
+
+		// ACK Handler metrics.
+		AckRequestsTotal: f.NewCounterVec(prometheus.CounterOpts{
+			Name: "ack_requests_total",
+			Help: "Total ACK HTTP requests received.",
+		}, []string{"http_status", "stream_id"}),
+		AckProcessingDuration: f.NewHistogramVec(prometheus.HistogramOpts{
+			Name:    "ack_processing_duration_seconds",
+			Help:    "End-to-end ACK processing latency from receipt to NATS publish.",
+			Buckets: prometheus.DefBuckets,
+		}, []string{"stream_id"}),
+		AckValidationErrorsTotal: f.NewCounterVec(prometheus.CounterOpts{
+			Name: "ack_validation_errors_total",
+			Help: "Count of ACK payload validation failures.",
+		}, []string{"error_type"}),
+		AckDuplicateTotal: f.NewCounterVec(prometheus.CounterOpts{
+			Name: "ack_duplicate_total",
+			Help: "Count of duplicate ACK attempts rejected.",
+		}, []string{"stream_id"}),
+		AckToEventLatency: f.NewHistogramVec(prometheus.HistogramOpts{
+			Name:    "ack_to_event_latency_seconds",
+			Help:    "Time between event server-push and ACK receipt.",
+			Buckets: prometheus.DefBuckets,
+		}, []string{"stream_id"}),
+		AckUnknownEventTotal: f.NewCounterVec(prometheus.CounterOpts{
+			Name: "ack_unknown_event_total",
+			Help: "ACKs rejected because event_id was not found.",
+		}, []string{"stream_id"}),
+
+		// NATS publisher metrics.
+		NATSPublishTotal: f.NewCounterVec(prometheus.CounterOpts{
+			Name: "nats_publish_total",
+			Help: "Total NATS publish attempts.",
+		}, []string{"subject", "status"}),
+		NATSPublishDuration: f.NewHistogramVec(prometheus.HistogramOpts{
+			Name:    "nats_publish_duration_seconds",
+			Help:    "Round-trip latency of a NATS JetStream publish call.",
+			Buckets: prometheus.DefBuckets,
+		}, []string{"subject"}),
+		NATSPublishRetriesTotal: f.NewCounterVec(prometheus.CounterOpts{
+			Name: "nats_publish_retries_total",
+			Help: "Total NATS publish retry attempts.",
+		}, []string{"subject"}),
+		NATSConnectionStatus: f.NewGaugeVec(prometheus.GaugeOpts{
+			Name: "nats_connection_status",
+			Help: "NATS connection health: 1=connected, 0=disconnected.",
+		}, []string{"server"}),
 	}
 }

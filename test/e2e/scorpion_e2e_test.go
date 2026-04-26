@@ -35,6 +35,7 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/prometheus/client_golang/prometheus"
 
+	ackpub "github.com/blkst8/scorpion/internal/ack"
 	appmiddleware "github.com/blkst8/scorpion/internal/app"
 	"github.com/blkst8/scorpion/internal/config"
 	httpserver "github.com/blkst8/scorpion/internal/http"
@@ -250,18 +251,21 @@ func startServer(t *testing.T) *testServer {
 	ticketStore := redisstore.NewTicketStore(rdb)
 	connStore := redisstore.NewConnectionStore(rdb, "e2e-instance", log)
 	eventStore := redisstore.NewEventStore(rdb, cfg.SSE.MaxQueueDepth)
+	inFlightStore := redisstore.NewInFlightStore(rdb)
 	limiter := ratelimit.NewLimiter(rdb, cfg.RateLimit)
 
 	h := handlers.HTTPHandlers{
-		RDB:        rdb,
-		Events:     eventStore,
-		Tickets:    ticketStore,
-		Conns:      connStore,
-		Limiter:    limiter,
-		IPStrategy: ipStrategy,
-		Cfg:        &cfg,
-		Log:        log,
-		Metrics:    m,
+		RDB:          rdb,
+		Events:       eventStore,
+		Tickets:      ticketStore,
+		Conns:        connStore,
+		InFlight:     inFlightStore,
+		AckPublisher: ackpub.NewLogPublisher(log),
+		Limiter:      limiter,
+		IPStrategy:   ipStrategy,
+		Cfg:          &cfg,
+		Log:          log,
+		Metrics:      m,
 	}
 
 	srv := httpserver.NewServer(cfg, log, ipStrategy, h)

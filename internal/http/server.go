@@ -58,6 +58,7 @@ func NewServer(
 	authV1.POST("/events/:client_id", registeredHandlers.V1InsertEvent)
 	authV1.GET("/events/:client_id", registeredHandlers.V1Poll)
 	authV1.GET("/stream/events", registeredHandlers.V1SSEStreamEvents)
+	authV1.POST("/ack", registeredHandlers.V1AckEvent)
 
 	tlsCfg := &tls.Config{MinVersion: tls.VersionTLS12}
 

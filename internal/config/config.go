@@ -16,6 +16,7 @@ type Config struct {
 	IP            IP            `yaml:"ip"`
 	RateLimit     RateLimit     `yaml:"ratelimit"`
 	Redis         Redis         `yaml:"repository"`
+	NATS          NATS          `yaml:"nats"`
 	Observability Observability `yaml:"observability"`
 }
 
@@ -79,6 +80,18 @@ type Observability struct {
 	OTLPEndpoint   string `yaml:"otlp_endpoint"`
 }
 
+// NATS contains NATS JetStream configuration for the ACK handler.
+type NATS struct {
+	URL              string        `yaml:"url"`
+	StreamName       string        `yaml:"stream_name"`
+	SubjectPrefix    string        `yaml:"subject_prefix"`
+	PublishTimeoutMs int           `yaml:"publish_timeout_ms"`
+	MaxRetries       int           `yaml:"max_retries"`
+	CredentialsFile  string        `yaml:"credentials_file"`
+	DuplicateWindow  time.Duration `yaml:"duplicate_window"`
+	Enabled          bool          `yaml:"enabled"`
+}
+
 // Load reads configuration from the given file path and returns a populated Config.
 func Load(configPath string) (*Config, error) {
 	viper.SetConfigFile(configPath)
@@ -113,6 +126,8 @@ func Load(configPath string) (*Config, error) {
 	_ = viper.BindEnv("auth.ticket_secret", "SCORPION_AUTH_TICKET_SECRET")
 	_ = viper.BindEnv("repository.password", "SCORPION_REDIS_PASSWORD")
 	_ = viper.BindEnv("observability.otlp_endpoint", "SCORPION_OTLP_ENDPOINT")
+	_ = viper.BindEnv("nats.url", "SCORPION_NATS_URL")
+	_ = viper.BindEnv("nats.credentials_file", "SCORPION_NATS_CREDENTIALS_FILE")
 
 	// Environment variable overrides
 	viper.AutomaticEnv()

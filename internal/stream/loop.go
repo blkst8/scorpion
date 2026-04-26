@@ -90,6 +90,7 @@ func RunLoop(
 	cfg config.SSE,
 	conns repository.ConnectionStore,
 	events repository.EventStore,
+	inFlight repository.InFlightStore,
 	log *slog.Logger,
 	m *metrics.Metrics,
 ) {
@@ -98,7 +99,7 @@ func RunLoop(
 
 	// Drain any queued events immediately on connect so the client doesn't
 	// have to wait a full poll interval for backlogged events.
-	drainAndFlush(ctx, w, rc, flusher, clientID, cfg, events, cb, log, m)
+	drainAndFlush(ctx, w, rc, flusher, clientID, cfg, events, inFlight, cb, log, m)
 
 	pollTicker := time.NewTicker(cfg.PollInterval)
 	defer pollTicker.Stop()
@@ -109,7 +110,7 @@ func RunLoop(
 		select {
 		case <-ctx.Done():
 			// Graceful drain: deliver any queued events before the connection closes.
-			drainAndFlush(context.Background(), w, rc, flusher, clientID, cfg, events, cb, log, m)
+			drainAndFlush(context.Background(), w, rc, flusher, clientID, cfg, events, inFlight, cb, log, m)
 			return
 
 		case <-heartbeatTicker.C:
@@ -129,7 +130,7 @@ func RunLoop(
 					applog.FieldError, err,
 				)
 			}
-			drainAndFlush(ctx, w, rc, flusher, clientID, cfg, events, cb, log, m)
+			drainAndFlush(ctx, w, rc, flusher, clientID, cfg, events, inFlight, cb, log, m)
 		}
 	}
 }
@@ -143,6 +144,7 @@ func drainAndFlush(
 	clientID string,
 	cfg config.SSE,
 	events repository.EventStore,
+	inFlight repository.InFlightStore,
 	cb *circuitBreaker,
 	log *slog.Logger,
 	m *metrics.Metrics,
@@ -196,6 +198,19 @@ func drainAndFlush(
 			)
 			_ = rc.SetWriteDeadline(time.Time{})
 			return
+		}
+
+		// Register the delivered event in the in-flight registry so the
+		// ACK handler can validate it.
+		if inFlight != nil {
+			if regErr := inFlight.Register(ctx, clientID, e.ID, time.Now()); regErr != nil {
+				// TODO Nima: add metrics here
+				log.Warn("failed to register in-flight event",
+					applog.FieldClientID, clientID,
+					"event_id", e.ID,
+					applog.FieldError, regErr,
+				)
+			}
 		}
 
 		m.EventsDeliveredTotal.WithLabelValues(eventType).Inc()
