@@ -22,7 +22,10 @@ func NewLogger(cfg config.Observability) *slog.Logger {
 		level = slog.LevelInfo
 	}
 
-	opts := &slog.HandlerOptions{Level: level}
+	opts := &slog.HandlerOptions{
+		AddSource: true,
+		Level:     level,
+	}
 
 	var handler slog.Handler
 	if cfg.LogFormat == "text" {
