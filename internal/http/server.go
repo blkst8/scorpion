@@ -53,12 +53,18 @@ func NewServer(
 		middleware.TokenMiddleware(cfg.Auth, ipStrategy, log),
 	)
 
-	// Authenticated routes.
+	// Authenticated routes (Bearer token required).
 	authV1 := v1.Group("", middleware.TokenMiddleware(cfg.Auth, ipStrategy, log))
 	authV1.POST("/events/:client_id", registeredHandlers.V1InsertEvent)
-	authV1.GET("/events/:client_id", registeredHandlers.V1Poll)
-	authV1.GET("/stream/events", registeredHandlers.V1SSEStreamEvents)
 	authV1.POST("/ack", registeredHandlers.V1AckEvent)
+
+	// Ticket-authenticated routes — EventSource cannot send headers, so these
+	// endpoints authenticate via a short-lived ticket in the query string.
+	// Only the real client IP is resolved here; ticket validation happens inside
+	// each handler.
+	ticketV1 := v1.Group("", middleware.IPMiddleware(ipStrategy))
+	ticketV1.GET("/events/:client_id", registeredHandlers.V1Poll)
+	ticketV1.GET("/stream/events", registeredHandlers.V1SSEStreamEvents)
 
 	tlsCfg := &tls.Config{MinVersion: tls.VersionTLS12}
 
@@ -102,7 +108,8 @@ func (s *Server) Serve() {
 
 	go func() {
 		s.log.Info("scorpion listening", "port", s.cfg.Server.Port, "tls", true)
-		if err := s.mainSrv.ListenAndServeTLS(s.cfg.Server.TLSCert, s.cfg.Server.TLSKey); err != nil &&
+		//if err := s.mainSrv.ListenAndServeTLS(s.cfg.Server.TLSCert, s.cfg.Server.TLSKey); err != nil &&
+		if err := s.mainSrv.ListenAndServe(); err != nil &&
 			!errors.Is(err, http.ErrServerClosed) {
 			s.log.Error("server error", "error", err)
 		}

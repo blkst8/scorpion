@@ -16,6 +16,24 @@ const (
 	ClientIP string = "client_ip"
 )
 
+// IPMiddleware resolves the real client IP and stores it in the echo context under ClientIP.
+// Used for ticket-authenticated routes (SSE, poll) where no Bearer token is present.
+func IPMiddleware(ipStrategy realclientip.Strategy) echo.MiddlewareFunc {
+	return func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c echo.Context) error {
+			clientIP := ipStrategy.ClientIP(c.Request().Header, c.Request().RemoteAddr)
+			if clientIP == "" {
+				return c.JSON(http.StatusInternalServerError, map[string]string{
+					"error":   "internal_error",
+					"message": "Failed to determine client IP.",
+				})
+			}
+			c.Set(ClientIP, clientIP)
+			return next(c)
+		}
+	}
+}
+
 // TokenMiddleware validates the real Bearer token and sets client_id/client_ip in context.
 // Used for routes that require authentication beyond the ticket system.
 func TokenMiddleware(cfg config.Auth, ipStrategy realclientip.Strategy, log *slog.Logger) echo.MiddlewareFunc {
