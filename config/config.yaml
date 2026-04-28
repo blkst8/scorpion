@@ -33,12 +33,14 @@ ratelimit:
   ticket_rpm: 10
   ticket_burst: 3
 
-repository:
+redis:
   address: "localhost:6379"
   # Override via SCORPION_REDIS_PASSWORD env var in production.
   password: ""
   db: 0
   max_retries: 3
+  pool_size: 0
+  min_idle_conns: 0
 
 observability:
   metrics_port: 9090
