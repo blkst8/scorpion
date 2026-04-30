@@ -108,8 +108,7 @@ func (s *Server) Serve() {
 
 	go func() {
 		s.log.Info("scorpion listening", "port", s.cfg.Server.Port, "tls", true)
-		//if err := s.mainSrv.ListenAndServeTLS(s.cfg.Server.TLSCert, s.cfg.Server.TLSKey); err != nil &&
-		if err := s.mainSrv.ListenAndServe(); err != nil &&
+		if err := s.mainSrv.ListenAndServeTLS(s.cfg.Server.TLSCert, s.cfg.Server.TLSKey); err != nil &&
 			!errors.Is(err, http.ErrServerClosed) {
 			s.log.Error("server error", "error", err)
 		}
