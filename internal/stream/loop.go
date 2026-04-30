@@ -204,7 +204,6 @@ func drainAndFlush(
 		// ACK handler can validate it.
 		if inFlight != nil {
 			if regErr := inFlight.Register(ctx, clientID, e.ID, time.Now()); regErr != nil {
-				// TODO Nima: add metrics here
 				log.Warn("failed to register in-flight event",
 					applog.FieldClientID, clientID,
 					"event_id", e.ID,

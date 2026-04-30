@@ -71,11 +71,28 @@ func runStart(_ *cobra.Command, _ []string) error {
 
 	limiter := ratelimit.NewLimiter(rdb, cfg.RateLimit)
 
-	// ACK publisher: use log-based stub when NATS is not configured.
+	// ACK publisher: use real NATS JetStream publisher when NATS is configured,
+	// otherwise fall back to the log-based stub.
 	var ackPublisher ack.Publisher
-	ackPublisher = ack.NewLogPublisher(log)
 	if cfg.NATS.Enabled {
-		log.Warn("NATS enabled in config but real NATS publisher not yet linked — using log publisher")
+		nc, err := app.WithNats(log, cfg.NATS)
+		if err != nil {
+			log.Warn("nats unavailable — falling back to log publisher", applog.FieldError, err)
+			ackPublisher = ack.NewLogPublisher(log)
+		} else {
+			pub, err := ack.NewNATSPublisher(nc, cfg.NATS)
+			if err != nil {
+				_ = nc.Drain()
+				log.Warn("nats publisher init failed — falling back to log publisher", applog.FieldError, err)
+				ackPublisher = ack.NewLogPublisher(log)
+			} else {
+				ackPublisher = pub
+				defer ackPublisher.Close()
+				log.Info("nats ack publisher ready", "subject", cfg.NATS.SubjectPrefix)
+			}
+		}
+	} else {
+		ackPublisher = ack.NewLogPublisher(log)
 	}
 
 	h := handlers.HTTPHandlers{
