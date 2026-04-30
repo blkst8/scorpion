@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"log/slog"
 
 	"github.com/blkst8/scorpion/internal/ack"
@@ -13,6 +14,7 @@ import (
 )
 
 type HTTPHandlers struct {
+	AppCTX       context.Context
 	RDB          *redis.Client
 	Events       repository.EventStore
 	Tickets      repository.TicketStore

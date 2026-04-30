@@ -168,7 +168,7 @@ func (h *HTTPHandlers) V1SSEStreamEvents(ctx echo.Context) error {
 	// buffered inside Go's http.ResponseWriter until the first Write/Flush.
 	flusher.Flush()
 
-	stream.RunLoop(r.Context(), w, flusher, clientID, requestIP, h.Cfg.SSE, h.Conns, h.Events, h.InFlight, h.Log, h.Metrics)
+	stream.RunLoop(r.Context(), h.AppCTX, w, flusher, clientID, requestIP, h.Cfg.SSE, h.Conns, h.Events, h.InFlight, h.Log, h.Metrics)
 
 	return nil
 }

@@ -84,6 +84,7 @@ func (cb *circuitBreaker) recordFailure() {
 // heartbeats. Blocks until ctx is cancelled.
 func RunLoop(
 	ctx context.Context,
+	appCtx context.Context,
 	w io.Writer,
 	flusher http.Flusher,
 	clientID, clientIP string,
@@ -109,11 +110,13 @@ func RunLoop(
 	for {
 		select {
 		case <-ctx.Done():
+			log.Warn("context cancelled, exiting stream loop")
 			// Graceful drain: deliver any queued events before the connection closes.
 			drainAndFlush(context.Background(), w, rc, flusher, clientID, cfg, events, inFlight, cb, log, m)
 			return
 
 		case <-heartbeatTicker.C:
+			log.Debug("sending heartbeat", applog.FieldClientID, clientID)
 			if err := sendHeartbeat(w, rc, flusher, clientID, clientIP, log, m); err != nil {
 				log.Warn("heartbeat write failed — client gone",
 					applog.FieldClientID, clientID,
@@ -155,6 +158,7 @@ func drainAndFlush(
 	defer span.End()
 
 	if cb.isOpen() {
+		log.Debug("circuit breaker open, skipping drain")
 		return
 	}
 

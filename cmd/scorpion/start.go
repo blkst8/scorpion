@@ -95,7 +95,10 @@ func runStart(_ *cobra.Command, _ []string) error {
 		ackPublisher = ack.NewLogPublisher(log)
 	}
 
+	// TODO: add sigkill
+	appCtx := context.Background()
 	h := handlers.HTTPHandlers{
+		AppCTX:       appCtx,
 		RDB:          rdb,
 		Events:       repo.EventStore,
 		Tickets:      repo.TicketStore,
@@ -115,6 +118,8 @@ func runStart(_ *cobra.Command, _ []string) error {
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, syscall.SIGINT, syscall.SIGTERM)
 	sig := <-stop
+
+	appCtx.Done()
 
 	log.Info("shutdown signal received", applog.FieldSignal, sig.String())
 	shutdownStart := time.Now()

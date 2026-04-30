@@ -1,0 +1,60 @@
+server:
+  port: 8443
+  tls_cert: ""
+  tls_key: ""
+  shutdown_timeout: 30s
+  read_timeout: 10s
+  idle_timeout: 60s
+
+sse:
+  poll_interval: 4s
+  batch_size: 100
+  heartbeat_interval: 2s
+  conn_ttl: 300s
+  max_queue_depth: 10000
+  max_event_bytes: 1048576  # 1024 KiB
+
+auth:
+  # Override via SCORPION_AUTH_TOKEN_SECRET / SCORPION_AUTH_TICKET_SECRET env vars in production.
+  token_secret: "change-me-real-token-secret"
+  ticket_secret: "change-me-ticket-secret"
+  ticket_ttl: 5m
+
+ip:
+  strategy: "remote_addr"
+  # strategy: "rightmost_trusted_count"
+  header: "X-Forwarded-For"
+  trusted_count: 1
+  # trusted_ranges:
+  #   - "10.0.0.0/8"
+  #   - "172.16.0.0/12"
+
+ratelimit:
+  ticket_rpm: 10
+  ticket_burst: 3
+
+repository:
+  address: "localhost:6379"
+  # Override via SCORPION_REDIS_PASSWORD env var in production.
+  password: ""
+  db: 0
+  max_retries: 3
+
+observability:
+  metrics_port: 9090
+  log_level: "info"   # debug, info, warn, error
+  log_format: "json"  # json, text
+  tracing_enabled: false
+  # Override via SCORPION_OTLP_ENDPOINT env var.
+  otlp_endpoint: ""   # e.g. "otel-collector:4317"
+
+nats:
+  enabled: false
+  url: "nats://localhost:4222"
+  stream_name: "ACK_STREAM"
+  subject_prefix: "sse.acks"
+  publish_timeout_ms: 3000
+  max_retries: 3
+  credentials_file: ""
+  duplicate_window: 2m
+
