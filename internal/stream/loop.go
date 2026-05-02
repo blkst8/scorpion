@@ -109,6 +109,12 @@ func RunLoop(
 
 	for {
 		select {
+		case <-appCtx.Done():
+			log.Info("application context cancelled, initiating graceful shutdown", applog.FieldClientID, clientID)
+			// Graceful drain: deliver any queued events before the connection closes.
+			drainAndFlush(context.Background(), w, rc, flusher, clientID, cfg, events, inFlight, cb, log, m)
+			return
+
 		case <-ctx.Done():
 			log.Warn("context cancelled, exiting stream loop")
 			// Graceful drain: deliver any queued events before the connection closes.
